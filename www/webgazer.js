@@ -44385,7 +44385,28 @@ function supports_ogg_theora_video() {
         } while (!success);
         return m_Coefficients;
     }
-    
+
+    function r_squared(screenArray,eyeFeats,coefficients){
+        var predicted = [];
+        var meanValue = 0;
+        var eye_data = [];
+        var SStot = 0;
+        var SSres = 0;
+        //don't need to duplicate this
+        for(var i=0; i< eyeFeats.length; i++){
+            predicted.push(eyeFeats[i] * coefficients[i]);
+        }
+        for (var n=0;n < screenArray.length;n++) { meanValue += screenArray[n][0]; }
+        meanValue = meanValue/screenArray.length;
+        for (var n=0;n<screenArray.length;n++) { 
+            SStot += Math.pow(screenArray[n] - meanValue, 2); 
+            SSres += Math.pow(predicted[n] - screenArray[n], 2);
+        }
+        return 1 - (SSres / SStot);
+    }
+
+        //get the average - get the squared sum of the dependent variable (eyeFeats)- average
+        //get the squared sum of the difference between the prediction and actual value
     /**
      * Compute eyes size as gray histogram
      * @param {Object} eyes - The eyes where looking for gray histogram
@@ -44560,6 +44581,7 @@ function supports_ogg_theora_video() {
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];
         }
+        r_squared(screenXArray,eyeFeats,coefficientsX)
         var predictedY = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedY += eyeFeats[i] * coefficientsY[i];
@@ -45231,8 +45253,6 @@ function store_points(x, y, k) {
     };
     var regressionMap = {
         'ridge': function() { return new webgazer.reg.RidgeReg(); },
-        'weightedRidge': function() { return new webgazer.reg.RidgeWeightedReg(); },
-        'threadedRidge': function() { return new webgazer.reg.RidgeRegThreaded(); },
     };
 
     //localstorage name
