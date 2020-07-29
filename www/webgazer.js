@@ -44386,20 +44386,28 @@ function supports_ogg_theora_video() {
         return m_Coefficients;
     }
 
-    function r_squared(screenArray,eyeFeats,coefficients){
+    function r_squared(screenArray,eyeFeatures,coefficients){
         var predicted = [];
         var meanValue = 0;
         var eye_data = [];
         var SStot = 0;
         var SSres = 0;
+        var predicted_value;
         //don't need to duplicate this
-        for(var i=0; i< eyeFeats.length; i++){
-            predicted.push(eyeFeats[i] * coefficients[i]);
+        for(var i=0; i< eyeFeatures.length; i++){
+            //getEyeFeats(eyeFeats[i]);
+            predicted_value = 0;
+            for(var j=0;j<eyeFeatures[i].length;j++){
+                predicted_value += eyeFeatures[i][j] * coefficients[j];
+            }
+
+            predicted.push(predicted_value);
         }
         for (var n=0;n < screenArray.length;n++) { meanValue += screenArray[n][0]; }
         meanValue = meanValue/screenArray.length;
         for (var n=0;n<screenArray.length;n++) { 
             SStot += Math.pow(screenArray[n] - meanValue, 2); 
+                                //what prediction does the model make?
             SSres += Math.pow(predicted[n] - screenArray[n], 2);
         }
         return 1 - (SSres / SStot);
@@ -44581,7 +44589,7 @@ function supports_ogg_theora_video() {
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];
         }
-        r_squared(screenXArray,eyeFeats,coefficientsX)
+        r_squared(screenXArray,eyeFeatures,coefficientsX)
         var predictedY = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedY += eyeFeats[i] * coefficientsY[i];
