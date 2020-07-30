@@ -44515,10 +44515,10 @@ function supports_ogg_theora_video() {
             let prediction = this.predict(eyes);
             this.totalError += Math.sqrt(Math.pow(prediction.x - screenPos[0],2) + Math.pow(prediction.y - screenPos[1],2))
             //could calculate height and width independently
-            if(webgazer.gazeDot.style){
-                webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
-                webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
-            }
+            // if(webgazer.gazeDot.style){
+            //     webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
+            //     webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
+            // }
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
@@ -45718,6 +45718,10 @@ function store_points(x, y, k) {
         gazeDot.style.opacity = '0.7';
         gazeDot.style.width = '10px';
         gazeDot.style.height = '10px';
+        if (regs[0].totalError && regs[0].screenXClicksArray){
+            gazeDot.style.width=String(regs[0].totalError/regs[0].screenXClicksArray.length)+"px"
+            gazeDot.style.height=String(regs[0].totalError/regs[0].screenXClicksArray.length)+"px"
+        }
         webgazer.gazeDot = gazeDot;
 
         // Add other preview/feedback elements to the screen once the video has shown and its parameters are initialized
