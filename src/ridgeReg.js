@@ -188,10 +188,10 @@
             let prediction = this.predict(eyes);
             this.totalError += Math.sqrt(Math.pow(prediction.x - screenPos[0],2) + Math.pow(prediction.y - screenPos[1],2))
             //could calculate height and width independently
-            if(webgazer.gazeDot.style){
-                webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
-                webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
-            }
+            // if(webgazer.gazeDot.style){
+            //     webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
+            //     webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
+            // }
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);

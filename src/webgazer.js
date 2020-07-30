@@ -560,6 +560,10 @@
         gazeDot.style.opacity = '0.7';
         gazeDot.style.width = '10px';
         gazeDot.style.height = '10px';
+        if (regs.totalError){
+            gazeDot.style.width=String(regs.totalError/regs.screenXClicksArray.length)+"px"
+            gazeDot.style.height=String(regs.totalError/regs.screenXClicksArray.length)+"px"
+        }
         webgazer.gazeDot = gazeDot;
 
         // Add other preview/feedback elements to the screen once the video has shown and its parameters are initialized
