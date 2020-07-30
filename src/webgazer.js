@@ -96,7 +96,6 @@
         'settings': {}
     };
 
-
     //PRIVATE FUNCTIONS
 
     /**
@@ -561,6 +560,7 @@
         gazeDot.style.opacity = '0.7';
         gazeDot.style.width = '10px';
         gazeDot.style.height = '10px';
+        webgazer.gazeDot = gazeDot;
 
         // Add other preview/feedback elements to the screen once the video has shown and its parameters are initialized
         document.body.appendChild(videoElement);

@@ -44386,35 +44386,7 @@ function supports_ogg_theora_video() {
         return m_Coefficients;
     }
 
-    function r_squared(screenArray,eyeFeats,coefficients){
-        var predicted = [];
-        var meanValue = 0;
-        var eye_data = [];
-        var SStot = 0;
-        var SSres = 0;
-        var predicted_value;
-        // for(var i=0; i< eyeFeatures.length; i++){
-        //     predicted_value = 0;
-        //     for(var j=0;j<eyeFeatures[i].length;j++){
-        //         predicted_value += eyeFeatures[i][j] * coefficients[j];
-        //     }
-        //     predicted.push(predicted_value);
-        // }
-        for (var i=0; i<coefficients.length;i++){
-            predicted_value += eyeFeats[i] * coefficients[i];
-        }
-        for (var n=0;n < screenArray.length;n++) { meanValue += screenArray[n][0]; }
-        meanValue = meanValue/screenArray.length;
-        for (var n=0;n<screenArray.length;n++) { 
-            SStot += Math.pow(screenArray[n] - meanValue, 2); 
-                                //what prediction does the model make?
-            SSres += Math.pow(predicted[n] - screenArray[n], 2);
-        }
-        return 1 - (SSres / SStot);
-    }
-
-        //get the average - get the squared sum of the dependent variable (eyeFeats)- average
-        //get the squared sum of the difference between the prediction and actual value
+    
     /**
      * Compute eyes size as gray histogram
      * @param {Object} eyes - The eyes where looking for gray histogram
@@ -44542,8 +44514,11 @@ function supports_ogg_theora_video() {
 
             let prediction = this.predict(eyes);
             this.totalError += Math.sqrt(Math.pow(prediction.x - screenPos[0],2) + Math.pow(prediction.y - screenPos[1],2))
-            console.log('average error')
-            console.log(this.totalError/this.screenXClicksArray.length)
+            //could calculate height and width independently
+            if(webgazer.gazeDot.style){
+                webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
+                webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
+            }
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
@@ -44595,7 +44570,6 @@ function supports_ogg_theora_video() {
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];
         }
-        r_squared(screenXArray,eyeFeats,coefficientsX)
         var predictedY = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedY += eyeFeats[i] * coefficientsY[i];
@@ -45280,7 +45254,6 @@ function store_points(x, y, k) {
         'settings': {}
     };
 
-
     //PRIVATE FUNCTIONS
 
     /**
@@ -45745,6 +45718,7 @@ function store_points(x, y, k) {
         gazeDot.style.opacity = '0.7';
         gazeDot.style.width = '10px';
         gazeDot.style.height = '10px';
+        webgazer.gazeDot = gazeDot;
 
         // Add other preview/feedback elements to the screen once the video has shown and its parameters are initialized
         document.body.appendChild(videoElement);
