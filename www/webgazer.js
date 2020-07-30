@@ -44386,22 +44386,22 @@ function supports_ogg_theora_video() {
         return m_Coefficients;
     }
 
-    function r_squared(screenArray,eyeFeatures,coefficients){
+    function r_squared(screenArray,eyeFeats,coefficients){
         var predicted = [];
         var meanValue = 0;
         var eye_data = [];
         var SStot = 0;
         var SSres = 0;
         var predicted_value;
-        //don't need to duplicate this
-        for(var i=0; i< eyeFeatures.length; i++){
-            //getEyeFeats(eyeFeats[i]);
-            predicted_value = 0;
-            for(var j=0;j<eyeFeatures[i].length;j++){
-                predicted_value += eyeFeatures[i][j] * coefficients[j];
-            }
-
-            predicted.push(predicted_value);
+        // for(var i=0; i< eyeFeatures.length; i++){
+        //     predicted_value = 0;
+        //     for(var j=0;j<eyeFeatures[i].length;j++){
+        //         predicted_value += eyeFeatures[i][j] * coefficients[j];
+        //     }
+        //     predicted.push(predicted_value);
+        // }
+        for (var i=0; i<coefficients.length;i++){
+            predicted_value += eyeFeats[i] * coefficients[i];
         }
         for (var n=0;n < screenArray.length;n++) { meanValue += screenArray[n][0]; }
         meanValue = meanValue/screenArray.length;
@@ -44486,6 +44486,7 @@ function supports_ogg_theora_video() {
         this.dataClicks = new webgazer.util.DataWindow(dataWindow);
         this.dataTrail = new webgazer.util.DataWindow(trailDataWindow);
 
+        this.totalError = 0;
         // Initialize Kalman filter [20200608 xk] what do we do about parameters?
         // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least 
         //               by my own anecdotal observation a 4x1 x vector seems to work alright
@@ -44538,6 +44539,11 @@ function supports_ogg_theora_video() {
 
             this.eyeFeaturesClicks.push(getEyeFeats(eyes));
             this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
+
+            let prediction = this.predict(eyes);
+            this.totalError += Math.sqrt(Math.pow(prediction.x - screenPos[0],2) + Math.pow(prediction.y - screenPos[1],2))
+            console.log('average error')
+            console.log(this.totalError/this.screenXClicksArray.length)
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
@@ -44589,7 +44595,7 @@ function supports_ogg_theora_video() {
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];
         }
-        r_squared(screenXArray,eyeFeatures,coefficientsX)
+        r_squared(screenXArray,eyeFeats,coefficientsX)
         var predictedY = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedY += eyeFeats[i] * coefficientsY[i];

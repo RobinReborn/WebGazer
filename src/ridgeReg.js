@@ -59,35 +59,7 @@
         return m_Coefficients;
     }
 
-    function r_squared(screenArray,eyeFeatures,coefficients){
-        var predicted = [];
-        var meanValue = 0;
-        var eye_data = [];
-        var SStot = 0;
-        var SSres = 0;
-        var predicted_value;
-        //don't need to duplicate this
-        for(var i=0; i< eyeFeatures.length; i++){
-            //getEyeFeats(eyeFeats[i]);
-            predicted_value = 0;
-            for(var j=0;j<eyeFeatures[i].length;j++){
-                predicted_value += eyeFeatures[i][j] * coefficients[j];
-            }
-
-            predicted.push(predicted_value);
-        }
-        for (var n=0;n < screenArray.length;n++) { meanValue += screenArray[n][0]; }
-        meanValue = meanValue/screenArray.length;
-        for (var n=0;n<screenArray.length;n++) { 
-            SStot += Math.pow(screenArray[n] - meanValue, 2); 
-                                //what prediction does the model make?
-            SSres += Math.pow(predicted[n] - screenArray[n], 2);
-        }
-        return 1 - (SSres / SStot);
-    }
-
-        //get the average - get the squared sum of the dependent variable (eyeFeats)- average
-        //get the squared sum of the difference between the prediction and actual value
+    
     /**
      * Compute eyes size as gray histogram
      * @param {Object} eyes - The eyes where looking for gray histogram
@@ -159,6 +131,7 @@
         this.dataClicks = new webgazer.util.DataWindow(dataWindow);
         this.dataTrail = new webgazer.util.DataWindow(trailDataWindow);
 
+        this.totalError = 0;
         // Initialize Kalman filter [20200608 xk] what do we do about parameters?
         // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least 
         //               by my own anecdotal observation a 4x1 x vector seems to work alright
@@ -211,6 +184,11 @@
 
             this.eyeFeaturesClicks.push(getEyeFeats(eyes));
             this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
+
+            let prediction = this.predict(eyes);
+            this.totalError += Math.sqrt(Math.pow(prediction.x - screenPos[0],2) + Math.pow(prediction.y - screenPos[1],2))
+            console.log('average error')
+            console.log(this.totalError/this.screenXClicksArray.length)
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
@@ -262,7 +240,6 @@
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];
         }
-        r_squared(screenXArray,eyeFeatures,coefficientsX)
         var predictedY = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedY += eyeFeats[i] * coefficientsY[i];
