@@ -26,7 +26,12 @@ var config = {
 var heatmap = h337.create(config)
 var heatmap_data = []
 
-var open_left_eye_dist, closed_left_eye_dist;
+
+
+var open_left_eye_dist, closed_left_eye_dist,
+    ctxl = document.getElementById('eye_image_left').getContext("2d"),
+    ctxr = document.getElementById('eye_image_right').getContext("2d");
+
 var EyeListener = async function(data, clock) {
   if(!data)
     return;
@@ -44,7 +49,7 @@ var EyeListener = async function(data, clock) {
     await new Promise(r => setTimeout(r, 1500));
     
     document.getElementById('closed_downloadphoto').href = document.getElementById('webgazerVideoCanvas').toDataURL('image/png');
-    closed_left_eye_dist = patches.left.height//fmPositions[23][1] - fmPositions[223][1]
+    closed_left_eye_dist = patches.left.height
     color_sum_closed = eye_color_sum;
     document.getElementById('eye_tracking_data').innerHTML += "color_sum_closed " + String(color_sum_closed) +'<br>';
     beep();
@@ -75,6 +80,9 @@ var EyeListener = async function(data, clock) {
     blinking = false;
   }
   
+  ctxl.putImageData(patches.left.patch,0,0)
+  ctxr.putImageData(patches.right.patch,0,0)
+
   if (time_initial == 0){
   	time_initial = clock;
   }
@@ -208,14 +216,8 @@ canvas.addEventListener('click',function(evt){
   else if (isInside(mousePos,button_heatmap_rect)){
   	var see_heatmap = document.getElementById('heatmap');
   	see_heatmap.style.visibility = 'visible';
-  	//to download document.getElementById('closed_downloadphoto').href = document.getElementsByClassName('heatmap-canvas')[0].toDataURL("image/jpeg");
-  	//var node = document.getElementById('my-node');
-
 	domtoimage.toPng(document.body)
     .then(function (dataUrl) {
-        //var img = new Image();
-        //img.src = dataUrl;
-        //document.body.appendChild(img);
         document.getElementById('closed_downloadphoto').href = dataUrl;
     })
     .catch(function (error) {
