@@ -32,7 +32,7 @@ export async function onload(setup,listener) {
       localforage.setItem(localstorageSettingsLabel, null);
   }
 
-  const webgazerInstance = await webgazer.setRegression('ridge') /* currently must set regression and tracker */
+  const webgazerInstance = await webgazer.setRegression('ridgeWeightedReg') /* currently must set regression and tracker */
   .setTracker('TFFacemesh')
   .begin();
   webgazerInstance.showPredictionPoints(false); /* shows a square every 100 milliseconds where current prediction is */

@@ -33,6 +33,7 @@ module.exports = function(grunt) {
 					'src/pupil.js',
 					'src/regression.js',
 					'src/ridgeReg.js',
+					'src/ridgeWeightedReg.js',
 					'src/blinkDetector.js',
 					'src/util.js',
 					'src/precision.js',

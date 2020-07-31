@@ -1,0 +1,1 @@
+move eyefeats to utils (and any other duplicated ridgereg code)

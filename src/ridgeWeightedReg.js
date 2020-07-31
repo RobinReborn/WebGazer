@@ -59,7 +59,6 @@
         return m_Coefficients;
     }
 
-    
     /**
      * Compute eyes size as gray histogram
      * @param {Object} eyes - The eyes where looking for gray histogram
@@ -104,18 +103,17 @@
     }
 
     /**
-     * Constructor of RidgeReg object,
-     * this object allow to perform ridge regression
+     * Constructor of RidgeWeightedReg object
      * @constructor
      */
-    webgazer.reg.RidgeReg = function() {
+    webgazer.reg.RidgeWeightedReg = function() {
         this.init();
     };
-
+    
     /**
      * Initialize new arrays and initialize Kalman filter.
      */
-    webgazer.reg.RidgeReg.prototype.init = function() {
+    webgazer.reg.RidgeWeightedReg.prototype.init = function() {
         this.screenXClicksArray = new webgazer.util.DataWindow(dataWindow);
         this.screenYClicksArray = new webgazer.util.DataWindow(dataWindow);
         this.eyeFeaturesClicks = new webgazer.util.DataWindow(dataWindow);
@@ -130,8 +128,8 @@
 
         this.dataClicks = new webgazer.util.DataWindow(dataWindow);
         this.dataTrail = new webgazer.util.DataWindow(trailDataWindow);
-
         this.totalError = 0;
+
         // Initialize Kalman filter [20200608 xk] what do we do about parameters?
         // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least 
         //               by my own anecdotal observation a 4x1 x vector seems to work alright
@@ -171,7 +169,7 @@
      * @param {Object} screenPos - The current screen point
      * @param {Object} type - The type of performed action
      */
-    webgazer.reg.RidgeReg.prototype.addData = function(eyes, screenPos, type) {
+    webgazer.reg.RidgeWeightedReg.prototype.addData = function(eyes, screenPos, type) {
         if (!eyes) {
             return;
         }
@@ -191,7 +189,6 @@
                 webgazer.gazeDot.style.width=String(this.totalError/this.screenXClicksArray.length)+"px"
                 webgazer.gazeDot.style.height=String(this.totalError/this.screenXClicksArray.length)+"px"
             }
-
         } else if (type === 'move') {
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
@@ -207,7 +204,7 @@
         // Causes problems for when we want to call 'addData' twice in a row on the same object, but perhaps with different screenPos or types (think multiple interactions within one video frame)
         //eyes.left.patch = Array.from(eyes.left.patch.data);
         //eyes.right.patch = Array.from(eyes.right.patch.data);
-    }
+    };
 
     /**
      * Try to predict coordinates from pupil data
@@ -215,7 +212,7 @@
      * @param {Object} eyesObj - The current user eyes object
      * @returns {Object}
      */
-    webgazer.reg.RidgeReg.prototype.predict = function(eyesObj) {
+    webgazer.reg.RidgeWeightedReg.prototype.predict = function(eyesObj) {
         if (!eyesObj || this.eyeFeaturesClicks.length === 0) {
             return null;
         }
@@ -231,9 +228,31 @@
             }
         }
 
-        var screenXArray = this.screenXClicksArray.data.concat(trailX);
-        var screenYArray = this.screenYClicksArray.data.concat(trailY);
-        var eyeFeatures = this.eyeFeaturesClicks.data.concat(trailFeat);
+        var len = this.eyeFeaturesClicks.data.length;
+        var weightedEyeFeats = Array(len);
+        var weightedXArray = Array(len);
+        var weightedYArray = Array(len);
+        for (var i = 0; i < len; i++) {
+            var weight = Math.sqrt( 1 / (len - i) ); // access from oldest to newest so should start with low weight and increase steadily
+            //abstraction is leaking...
+            var trueIndex = this.eyeFeaturesClicks.getTrueIndex(i);
+            for (var j = 0; j < this.eyeFeaturesClicks.data[trueIndex].length; j++) {
+                var val = this.eyeFeaturesClicks.data[trueIndex][j] * weight;
+                if (weightedEyeFeats[trueIndex] !== undefined){
+                    weightedEyeFeats[trueIndex].push(val);
+                } else {
+                    weightedEyeFeats[trueIndex] = [val];
+                }
+            }
+            weightedXArray[trueIndex] = this.screenXClicksArray.get(i).slice(0, this.screenXClicksArray.get(i).length);
+            weightedYArray[trueIndex] = this.screenYClicksArray.get(i).slice(0, this.screenYClicksArray.get(i).length);
+            weightedXArray[i][0] = weightedXArray[i][0] * weight;
+            weightedYArray[i][0] = weightedYArray[i][0] * weight;
+        }
+
+        var screenXArray = weightedXArray.concat(trailX);
+        var screenYArray = weightedYArray.concat(trailY);
+        var eyeFeatures = weightedEyeFeats.concat(trailFeat);
 
         var coefficientsX = ridge(screenXArray, eyeFeatures, ridgeParameter);
         var coefficientsY = ridge(screenYArray, eyeFeatures, ridgeParameter);
@@ -273,8 +292,10 @@
      * replace current data member with given data
      * @param {Array.<Object>} data - The data to set
      */
-    webgazer.reg.RidgeReg.prototype.setData = function(data) {
+    webgazer.reg.RidgeWeightedReg.prototype.setData = function(data) {
         for (var i = 0; i < data.length; i++) {
+            // [20200611 xk] Previous comment said this was a kludge, but it seems like this is the best solution 
+
             // Clone data array
             var leftData = new Uint8ClampedArray(data[i].eyes.left.patch.data);
             var rightData = new Uint8ClampedArray(data[i].eyes.right.patch.data);
@@ -282,7 +303,6 @@
             data[i].eyes.left.patch = new ImageData(leftData, data[i].eyes.left.width, data[i].eyes.left.height);
             data[i].eyes.right.patch = new ImageData(rightData, data[i].eyes.right.width, data[i].eyes.right.height);
 
-            // Add those data objects to model
             this.addData(data[i].eyes, data[i].screenPos, data[i].type);
         }
     };
@@ -291,14 +311,14 @@
      * Return the data
      * @returns {Array.<Object>|*}
      */
-    webgazer.reg.RidgeReg.prototype.getData = function() {
+    webgazer.reg.RidgeWeightedReg.prototype.getData = function() {
         return this.dataClicks.data;
-    }
-    
+    };
+
     /**
-     * The RidgeReg object name
+     * The RidgeWeightedReg object name
      * @type {string}
      */
-    webgazer.reg.RidgeReg.prototype.name = 'ridge';
+    webgazer.reg.RidgeWeightedReg.prototype.name = 'ridgeWeightedReg';
     
 }(window));

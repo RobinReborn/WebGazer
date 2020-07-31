@@ -79,7 +79,15 @@ var EyeListener = async function(data, clock) {
   else{
     blinking = false;
   }
-  
+  // if (composing_eyes){
+  // 	//check for time, set composing_eyes to false if past time
+  // 	//create two dimensional array for each eye containing average
+  // 	//tricky part is eyes can be of different sizes
+  // 	//so could try to shrink or expand eyes (tricky) - use webgazer.util.resizeEye
+  //could modify to increase size of eye so we don't lose information - also try and just
+  //extract the center of the eye, currently we select a rectangle which include other features
+
+  // }
   ctxl.putImageData(patches.left.patch,0,0)
   ctxr.putImageData(patches.right.patch,0,0)
 
