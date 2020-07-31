@@ -208,6 +208,20 @@ canvas.addEventListener('click',function(evt){
   else if (isInside(mousePos,button_heatmap_rect)){
   	var see_heatmap = document.getElementById('heatmap');
   	see_heatmap.style.visibility = 'visible';
+  	//to download document.getElementById('closed_downloadphoto').href = document.getElementsByClassName('heatmap-canvas')[0].toDataURL("image/jpeg");
+  	//var node = document.getElementById('my-node');
+
+	domtoimage.toPng(document.body)
+    .then(function (dataUrl) {
+        //var img = new Image();
+        //img.src = dataUrl;
+        //document.body.appendChild(img);
+        document.getElementById('closed_downloadphoto').href = dataUrl;
+    })
+    .catch(function (error) {
+        console.error('oops, something went wrong!', error);
+    });
+
   }
 })
 
