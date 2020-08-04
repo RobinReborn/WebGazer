@@ -47,7 +47,6 @@ var EyeListener = async function(data, clock) {
   if (!calibrate_blink_closed){
   	calibrate_blink_closed = true;
     await new Promise(r => setTimeout(r, 1500));
-    
     document.getElementById('closed_downloadphoto').href = document.getElementById('webgazerVideoCanvas').toDataURL('image/png');
     closed_left_eye_dist = patches.left.height
     color_sum_closed = eye_color_sum;
@@ -55,7 +54,6 @@ var EyeListener = async function(data, clock) {
     beep();
     await new Promise(r => setTimeout(r, 3000))
     calibrate_blink_open = false;
-    
     return
   }
   else if (!calibrate_blink_open){
@@ -91,37 +89,8 @@ var EyeListener = async function(data, clock) {
   //ctxl.putImageData(patches.left.patch,0,0)
   ctxl.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
   ctxr.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
-  var height = patches.left.patch.height;
-  var width = patches.left.patch.width;
-  var answer = []
-  var offset = 0;
-  var wmidpoint = Math.floor(patches.left.patch.width/2)
-  var hmidpoint = Math.floor(patches.left.patch.height/2)
-  var w = 0;
-  var h = 0;
-  var loc = 0;
-  var eyedata = patches.left.patch.data
-  for (let x =0;x<eyedata.length;x++){
-  	loc = Math.floor(x/4)
-  	h = Math.floor(loc/width)
-  	w = loc - (h*width)
-  	
-  	if (h > hmidpoint) {offset=(hmidpoint-Math.abs(hmidpoint-h))} else {offset=h}
-  	if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
-  		console.log(x,"is in diamond, coordinates are x",w," y ",h)
-  	}
-  	else{
-  		eyedata[x] = 0;  		
-  	}
-  }
-  for (let x=0;x<height*4;x++){ 
-  	for(let y=0;y<offset*2*4;y++){
-  		answer.push(patches.left.patch.data[wmidpoint+(offset*height)+y])
-  	} 
-	if (x<hmidpoint){offset++}
-	else{offset--}
-  }
-
+  
+  
   if (time_initial == 0){
   	time_initial = clock;
   }

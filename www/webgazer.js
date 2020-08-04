@@ -45409,8 +45409,8 @@ function supports_ogg_theora_video() {
     webgazer.params = webgazer.params || {};
 
     var ridgeParameter = Math.pow(10,-5);
-    var resizeWidth = 10;
-    var resizeHeight = 6;
+    var resizeWidth = 20;
+    var resizeHeight = 12;
     var dataWindow = 700;
     var trailDataWindow = 10;
 
@@ -45459,18 +45459,43 @@ function supports_ogg_theora_video() {
         } while (!success);
         return m_Coefficients;
     }
-
+    //eye - patch.right
+    function diamondEyes(eye){
+        var start = window.performance.now()
+        var height = eye.height, width = eye.width, diamond = [],
+        offset = 0, wmidpoint = Math.floor(eye.width/2),
+        hmidpoint = Math.floor(eye.height/2),
+        w = 0, h = 0, loc = 0
+        for (let x =0;x<eye.data.length;x++){
+            loc = Math.floor(x/4)
+            h = Math.floor(loc/width)
+            w = loc - (h*width)
+            if (h > hmidpoint) {offset=(Math.floor(width/height)*(hmidpoint-(Math.abs(hmidpoint-h))))} 
+                else {offset=h*Math.floor(width/height)}
+            if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
+                diamond.push(eye.data[x]);
+            }
+            //can have else here to push white into diamond if you want to visualize eye
+        }
+        return diamond;
+    }
     /**
      * Compute eyes size as gray histogram
      * @param {Object} eyes - The eyes where looking for gray histogram
      * @returns {Array.<T>} The eyes gray level histogram
      */
     function getEyeFeats(eyes) {
+        
         var resizedLeft = webgazer.util.resizeEye(eyes.left, resizeWidth, resizeHeight);
         var resizedright = webgazer.util.resizeEye(eyes.right, resizeWidth, resizeHeight);
+        
+        // var leftGray = webgazer.util.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
+        // var rightGray = webgazer.util.grayscale(resizedright.data, resizedright.width, resizedright.height);
 
-        var leftGray = webgazer.util.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
-        var rightGray = webgazer.util.grayscale(resizedright.data, resizedright.width, resizedright.height);
+        var l_min = diamondEyes(resizedLeft);
+        var r_min = diamondEyes(resizedright);
+        var leftGray = webgazer.util.grayscale(l_min, l_min.length, 1);
+        var rightGray = webgazer.util.grayscale(r_min, r_min.length, 1);
 
         var histLeft = [];
         webgazer.util.equalizeHistogram(leftGray, 5, histLeft);
@@ -45480,6 +45505,7 @@ function supports_ogg_theora_video() {
         var leftGrayArray = Array.prototype.slice.call(histLeft);
         var rightGrayArray = Array.prototype.slice.call(histRight);
 
+        
         return leftGrayArray.concat(rightGrayArray);
     }
 
