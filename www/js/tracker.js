@@ -88,8 +88,40 @@ var EyeListener = async function(data, clock) {
   //extract the center of the eye, currently we select a rectangle which include other features
 
   // }
-  ctxl.putImageData(patches.left.patch,0,0)
-  ctxr.putImageData(patches.right.patch,0,0)
+  //ctxl.putImageData(patches.left.patch,0,0)
+  ctxl.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
+  ctxr.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
+  var height = patches.left.patch.height
+  var answer = []
+  var offset = 0;
+  var wmidpoint = Math.floor(patches.left.patch.width/2)
+  var hmidpoint = Math.floor(patches.left.patch.height/2)
+  var w = 0;
+  var h = 0;
+  var loc = 0;
+  var eyedata = patches.left.patch.data
+  for (let x =0;x<eyedata.length;x++){
+  	loc = Math.floor(x/4)
+  	//x - (Math.floor(x/(height*4)*height*4) = width location
+  	w = loc - (Math.floor(loc/(height))*height)
+  	h = Math.floor(loc/(height))
+  	if (h > hmidpoint){offset=(h-hmidpoint)}else{offset=h}
+  	if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
+  		console.log(x,"is in diamond, coordinates are x",w," y ",h)
+  	}
+  	else{
+  		eyedata[x] = 0;
+  		//eyedata[x] = 0;
+  		
+  	}
+  }
+  for (let x=0;x<height*4;x++){ 
+  	for(let y=0;y<offset*2*4;y++){
+  		answer.push(patches.left.patch.data[wmidpoint+(offset*height)+y])
+  	} 
+	if (x<hmidpoint){offset++}
+	else{offset--}
+  }
 
   if (time_initial == 0){
   	time_initial = clock;

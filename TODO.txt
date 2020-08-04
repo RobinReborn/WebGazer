@@ -1,1 +1,37 @@
 move eyefeats to utils (and any other duplicated ridgereg code)
+
+can add another property to return from TFFaceMesh.prototype.getEyePatches, the boundaries of the eyes,
+the places which are in the rectangle but not in the eye, then after image is resized we can calculate
+which pixels to exclude
+
+first find the points of the upper and lower eye, return them from getEyePatches (this could be pr for facemesh)
+then calculate where these would be in the resized eye objects -
+first iteration, just make a diamond with lines drawn from max and min x and y's.
+ we  and exclude them from the ridge regression 
+(can validate by coloring the pixels white and drawing it on the canvas) - can test performance afterwards
+
+figure out how pixel is converted to four numbers in image data
+
+suppose 10*10 array with elements 1-100, we want to get 'inner diamond', that is elements within the diagonals
+from the midpoints of the horizontal and vertical
+
+the ones in the diamond have an index sum greater or equal to 10/2 -1?
+
+take half the number (round up) and the sum of the absolute value of the difference between it and the indices
+if the sum is less than the number, it's in the array
+
+coordinates are x/height x%height
+
+equations for lines =
+midpoint height + height/width*height
+midpoint height - height/width*height
+
+so x < midpoint height + height/width*height
+
+take the midpoint of width, then after every iteration of height +/- height/width until reach midpoint of height,
+then decrease offset
+
+for (x=0;x++;x<height){ for(y=0;y++;y<offset*2){answer.push(diamond[midpoint+(offset*height)+y])} 
+if (x<ymidpoint){offset++}
+else{offset--}
+}
