@@ -91,7 +91,8 @@ var EyeListener = async function(data, clock) {
   //ctxl.putImageData(patches.left.patch,0,0)
   ctxl.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
   ctxr.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
-  var height = patches.left.patch.height
+  var height = patches.left.patch.height;
+  var width = patches.left.patch.width;
   var answer = []
   var offset = 0;
   var wmidpoint = Math.floor(patches.left.patch.width/2)
@@ -102,17 +103,15 @@ var EyeListener = async function(data, clock) {
   var eyedata = patches.left.patch.data
   for (let x =0;x<eyedata.length;x++){
   	loc = Math.floor(x/4)
-  	//x - (Math.floor(x/(height*4)*height*4) = width location
-  	w = loc - (Math.floor(loc/(height))*height)
-  	h = Math.floor(loc/(height))
-  	if (h > hmidpoint){offset=(h-hmidpoint)}else{offset=h}
+  	h = Math.floor(loc/width)
+  	w = loc - (h*width)
+  	
+  	if (h > hmidpoint) {offset=(hmidpoint-Math.abs(hmidpoint-h))} else {offset=h}
   	if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
   		console.log(x,"is in diamond, coordinates are x",w," y ",h)
   	}
   	else{
-  		eyedata[x] = 0;
-  		//eyedata[x] = 0;
-  		
+  		eyedata[x] = 0;  		
   	}
   }
   for (let x=0;x<height*4;x++){ 
