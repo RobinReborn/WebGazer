@@ -83,30 +83,7 @@
      * @param {Object} eyes - The eyes where looking for gray histogram
      * @returns {Array.<T>} The eyes gray level histogram
      */
-    function getEyeFeats(eyes) {
-        
-        var resizedLeft = webgazer.util.resizeEye(eyes.left, resizeWidth, resizeHeight);
-        var resizedright = webgazer.util.resizeEye(eyes.right, resizeWidth, resizeHeight);
-        
-        // var leftGray = webgazer.util.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
-        // var rightGray = webgazer.util.grayscale(resizedright.data, resizedright.width, resizedright.height);
-
-        var l_min = diamondEyes(resizedLeft);
-        var r_min = diamondEyes(resizedright);
-        var leftGray = webgazer.util.grayscale(l_min, l_min.length, 1);
-        var rightGray = webgazer.util.grayscale(r_min, r_min.length, 1);
-
-        var histLeft = [];
-        webgazer.util.equalizeHistogram(leftGray, 5, histLeft);
-        var histRight = [];
-        webgazer.util.equalizeHistogram(rightGray, 5, histRight);
-
-        var leftGrayArray = Array.prototype.slice.call(histLeft);
-        var rightGrayArray = Array.prototype.slice.call(histRight);
-
-        
-        return leftGrayArray.concat(rightGrayArray);
-    }
+    
 
     //TODO: still usefull ???
     /**
@@ -189,6 +166,30 @@
         this.kalman = new self.webgazer.util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
     };
 
+    webgazer.reg.RidgeWeightedReg.prototype.getEyeFeats = function(eyes) {
+        
+        var resizedLeft = webgazer.util.resizeEye(eyes.left, resizeWidth, resizeHeight);
+        var resizedright = webgazer.util.resizeEye(eyes.right, resizeWidth, resizeHeight);
+        
+        // var leftGray = webgazer.util.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
+        // var rightGray = webgazer.util.grayscale(resizedright.data, resizedright.width, resizedright.height);
+
+        var l_min = diamondEyes(resizedLeft);
+        var r_min = diamondEyes(resizedright);
+        var leftGray = webgazer.util.grayscale(l_min, l_min.length, 1);
+        var rightGray = webgazer.util.grayscale(r_min, r_min.length, 1);
+
+        var histLeft = [];
+        webgazer.util.equalizeHistogram(leftGray, 5, histLeft);
+        var histRight = [];
+        webgazer.util.equalizeHistogram(rightGray, 5, histRight);
+
+        var leftGrayArray = Array.prototype.slice.call(histLeft);
+        var rightGrayArray = Array.prototype.slice.call(histRight);
+
+        
+        return leftGrayArray.concat(rightGrayArray);
+    }
     /**
      * Add given data from eyes
      * @param {Object} eyes - eyes where extract data to add
@@ -206,7 +207,7 @@
             this.screenXClicksArray.push([screenPos[0]]);
             this.screenYClicksArray.push([screenPos[1]]);
 
-            this.eyeFeaturesClicks.push(getEyeFeats(eyes));
+            this.eyeFeaturesClicks.push(this.getEyeFeats(eyes));
             this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
 
             let prediction = this.predict(eyes);
@@ -219,7 +220,7 @@
             this.screenXTrailArray.push([screenPos[0]]);
             this.screenYTrailArray.push([screenPos[1]]);
 
-            this.eyeFeaturesTrail.push(getEyeFeats(eyes));
+            this.eyeFeaturesTrail.push(this.getEyeFeats(eyes));
             this.trailTimes.push(performance.now());
             this.dataTrail.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
         }
@@ -283,7 +284,7 @@
         var coefficientsX = ridge(screenXArray, eyeFeatures, ridgeParameter);
         var coefficientsY = ridge(screenYArray, eyeFeatures, ridgeParameter);
 
-        var eyeFeats = getEyeFeats(eyesObj);
+        var eyeFeats = this.getEyeFeats(eyesObj);
         var predictedX = 0;
         for(var i=0; i< eyeFeats.length; i++){
             predictedX += eyeFeats[i] * coefficientsX[i];

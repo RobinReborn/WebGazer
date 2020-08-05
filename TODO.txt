@@ -14,3 +14,10 @@ find out more about how to trace performance (https://calendar.perfplanet.com/20
 and figure out optimal resize value to balance speed of execution and accuracy
 
 figure out why it's taking so long to load
+
+modify webgazerextractserver to get different data and webgazerextractclient to send different data
+
+we want - modify clmPos fields to be for facemesh (or other fields)
+add an error column
+
+make saving images optional
