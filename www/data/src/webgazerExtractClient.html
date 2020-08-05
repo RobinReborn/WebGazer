@@ -15,7 +15,7 @@
     <canvas id="wsCanvas" width=640 height=480 onload=onLoad()></canvas>
     <video id="screencap" width=800 height=500 onload=onLoad() preload></video>
     <div id="scTimeOffsetDiv">
-    <button id="showScreenCap" onclick="toggleScreenCap()">Show ScreenCap</button>&nbsp;&nbsp;&nbsp;&nbsp;<input type="text" id="scTimeOffset" placeholder="-0.0" size=10 required><button id="scTimeOffsetButton" onclick='setScreenCapTimeOffset()'>Set screen cap time offset</button>
+    <button id="showScreenCap" onclick="toggleScreenCap()">Show ScreenCap</button>&nbsp;&nbsp;&nbsp;&nbsp;<input type="number" id="scTimeOffset" size=10 required value=0.0><button id="scTimeOffsetButton" onclick='setScreenCapTimeOffset()'>Set screen cap time offset</button>
     </div>
     <div id="diagDiv">
     <p id="partvidframe"></p>

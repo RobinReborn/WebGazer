@@ -90,7 +90,7 @@
 
             document.body.appendChild(overlay);
 
-            cl = webgazer.getTracker().clm;
+            cl = webgazer.getTracker();
 
             // Start WebSocket
             ws = new WebSocket("ws://localhost:8000/websocket");
@@ -210,7 +210,7 @@
             return result;
         }
 
-        function runWebGazerSendResult()
+        async function runWebGazerSendResult()
         {
             // Object to collect all the results
             var s = {};
@@ -339,7 +339,7 @@
             var webGazerY = "-1"
             // TODO magic numbers
             var eyeFeatures = Array(eyeFeaturesSize).fill(-1)
-            var gazeData = webgazer.getCurrentPrediction();
+            var gazeData = await webgazer.getCurrentPrediction();
             if ( gazeData )
             {
                 // Gaze in [0,1] coordinates
@@ -360,11 +360,12 @@
             
             // Also collect the CLMTracker positions
             // 
-            var clmPos = cl.getCurrentPosition();
+            //var clmPos = cl.getCurrentPosition();
+            var clmPos = cl.getPositions();
             if ( clmPos ) 
             {
                 overlay.getContext('2d').clearRect(0, 0, width, height);
-                cl.draw(overlay);
+                cl.drawFaceOverlay(overlay.getContext('2d'),clmPos);
             }
             else
             {   // Reproduce necessary structure
