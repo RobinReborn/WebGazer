@@ -26,7 +26,7 @@
         // WebSocket for sending image data
         var ws;
         // CLM tracker
-        var cl;
+        var fm;
         // TODO magic numbers
         var clmPosFeaturesSize = 142;
         var eyeFeaturesSize = 120;
@@ -90,7 +90,7 @@
 
             document.body.appendChild(overlay);
 
-            cl = webgazer.getTracker();
+            fm = webgazer.getTracker();
 
             // Start WebSocket
             ws = new WebSocket("ws://localhost:8000/websocket");
@@ -155,7 +155,7 @@
                         logsCount = 0
                         
                         // Reset clm tracker as it's a new participant with new interactions/appearance
-                        cl.reset();
+                        fm.reset();
 
                         var send = { msgID: "1" };
                         sendMsg( JSON.stringify(send) );
@@ -347,7 +347,8 @@
                 webGazerY = ( gazeData.y + docStartY ) / screenHeightPixels
 
                 // Grab eye features
-                eyeFeatures = gazeData.eyeFeatures;
+                
+                eyeFeatures = webgazer.getRegression()[0].getEyeFeats(gazeData.eyeFeatures)
 
                 // Update position of output visualizer
                 //
@@ -361,15 +362,15 @@
             // Also collect the CLMTracker positions
             // 
             //var clmPos = cl.getCurrentPosition();
-            var clmPos = cl.getPositions();
-            if ( clmPos ) 
+            var fmPos = fm.getPositions();
+            if ( fmPos ) 
             {
                 overlay.getContext('2d').clearRect(0, 0, width, height);
-                cl.drawFaceOverlay(overlay.getContext('2d'),clmPos);
+                fm.drawFaceOverlay(overlay.getContext('2d'),fmPos);
             }
             else
             {   // Reproduce necessary structure
-                clmPos = Array(clmPosFeaturesSize/2).fill(Array(-1,-1))
+                fmPos = Array(clmPosFeaturesSize/2).fill(Array(-1,-1))
             }
 
             // Update display
@@ -397,8 +398,10 @@
             s.frameTimeEpoch = frameTimeEpoch;
             s.webGazerX = webGazerX;
             s.webGazerY = webGazerY;
-            s.clmPos = clmPos;
+            s.clmPos = fmPos;
             s.eyeFeatures = eyeFeatures;
+            s.error = error;
+            s.errorPix = errorPix;
 
             sendMsg( JSON.stringify(s) )            
         }

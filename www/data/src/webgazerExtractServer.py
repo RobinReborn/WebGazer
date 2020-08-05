@@ -89,10 +89,12 @@ chromeDownloadBarHeight = 52
 
 ##################################################################
 # CSV header object field names
-clmPosKeys = ['clmPos_%04d' % i for i in range(0, 142)]
+clmPosKeys = ['fmPos_%04d' % i for i in range(0, 468)]
 eyeFeaturesKeys = ['eyeFeatures_%04d' % i for i in range(0, 120)]
-fieldnames = (['participant','frameImageFile','frameTimeEpoch','frameNum','mouseMoveX','mouseMoveY','mouseClickX','mouseClickY','keyPressed','keyPressedX','keyPressedY',
-               'tobiiLeftScreenGazeX','tobiiLeftScreenGazeY','tobiiRightScreenGazeX','tobiiRightScreenGazeY','webGazerX','webGazerY'])
+fieldnames = (['participant','frameImageFile','frameTimeEpoch','frameNum','mouseMoveX','mouseMoveY',
+               'mouseClickX','mouseClickY','keyPressed','keyPressedX','keyPressedY',
+               'tobiiLeftScreenGazeX','tobiiLeftScreenGazeY','tobiiRightScreenGazeX','tobiiRightScreenGazeY',
+               'webGazerX','webGazerY','error','errorPix'])
 fieldnames.extend( clmPosKeys )
 fieldnames.extend( eyeFeaturesKeys )
 
@@ -480,6 +482,8 @@ def writeDataToCSV( p, msg ):
     # Store current WebGazer prediction from browser
     wgCurrentX = float( msg["webGazerX"] )
     wgCurrentY = float( msg["webGazerY"] )
+    wgError = float( msg["error"] )
+    wgErrorPix = float( msg["errorPix"] )
 
 
     ###########################################################################################################
@@ -536,6 +540,9 @@ def writeDataToCSV( p, msg ):
     out["tobiiLeftScreenGazeY"] = td.leftScreenGazeY
     out["tobiiRightScreenGazeX"] = td.rightScreenGazeX
     out["tobiiRightScreenGazeY"] = td.rightScreenGazeY
+
+    out['error'] = wgError
+    out['errorPix'] = wgErrorPix
 
     # Turn clmPos and eyeFeatures into per-column values
     clmPosDict = dict(zip( clmPosKeys, list(chain.from_iterable( out["clmPos"] )) ) )

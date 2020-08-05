@@ -21,3 +21,5 @@ we want - modify clmPos fields to be for facemesh (or other fields)
 add an error column
 
 make saving images optional
+
+make extract UI friendlier - ie give number of videos completed/to go
