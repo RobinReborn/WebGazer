@@ -10,7 +10,7 @@ first iteration, just make a diamond with lines drawn from max and min x and y's
  we  and exclude them from the ridge regression 
 (can validate by coloring the pixels white and drawing it on the canvas) - can test performance afterwards
 
-still want to grayscale and equalize image but not sure how that works - and not sure if current code is 
-affecting performance
+find out more about how to trace performance (https://calendar.perfplanet.com/2019/javascript-component-level-cpu-costs/)
+and figure out optimal resize value to balance speed of execution and accuracy
 
-improved from 215 to 117
+figure out why it's taking so long to load

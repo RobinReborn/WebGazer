@@ -44,7 +44,7 @@ csvTempName = "gazePredictions.csv"
 csvDoneName = "gazePredictionsDone.csv"
 
 # Participant characteristics file
-pctFile = "20180317_participant_characteristics.csv"
+pctFile = "participant_characteristics.csv"
 
 # Options
 writeCSV = True

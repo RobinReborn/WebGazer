@@ -55,6 +55,7 @@ export async function onload(setup,listener) {
       webgazer.setGazeListener( listener );
     }
   }
+  
   setTimeout(checkIfReady,100);
 };
 
