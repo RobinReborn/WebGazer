@@ -89,13 +89,13 @@ chromeDownloadBarHeight = 52
 
 ##################################################################
 # CSV header object field names
-clmPosKeys = ['fmPos_%04d' % i for i in range(0, 468)]
+fmPosKeys = ['fmPos_%04d' % i for i in range(0, 468)]
 eyeFeaturesKeys = ['eyeFeatures_%04d' % i for i in range(0, 120)]
 fieldnames = (['participant','frameImageFile','frameTimeEpoch','frameNum','mouseMoveX','mouseMoveY',
                'mouseClickX','mouseClickY','keyPressed','keyPressedX','keyPressedY',
                'tobiiLeftScreenGazeX','tobiiLeftScreenGazeY','tobiiRightScreenGazeX','tobiiRightScreenGazeY',
                'webGazerX','webGazerY','error','errorPix'])
-fieldnames.extend( clmPosKeys )
+fieldnames.extend( fmPosKeys )
 fieldnames.extend( eyeFeaturesKeys )
 
 
@@ -197,6 +197,7 @@ class ParticipantData:
         ########################
         # WebGazer event log
         # *dot_test_instructions.webm is the first video file.
+        print(self.directory," directory")
         webMFile = glob.glob( self.directory + '/' + '*dot_test_instructions.webm' )
         # Split the video name into its pieces
         f = os.path.split( webMFile[0] )[1]
@@ -545,7 +546,7 @@ def writeDataToCSV( p, msg ):
     out['errorPix'] = wgErrorPix
 
     # Turn clmPos and eyeFeatures into per-column values
-    clmPosDict = dict(zip( clmPosKeys, list(chain.from_iterable( out["clmPos"] )) ) )
+    clmPosDict = dict(zip( fmPosKeys, list(chain.from_iterable( out["clmPos"] )) ) )
     eyeFeaturesDict = dict(zip( eyeFeaturesKeys, out["eyeFeatures"] ))
     out.update( clmPosDict )
     out.update( eyeFeaturesDict )
