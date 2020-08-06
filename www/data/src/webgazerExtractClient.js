@@ -383,7 +383,7 @@ async function runWebGazerSendResult()
 
     // Update display
     var pDiag = document.getElementById("partvidframe")
-    pDiag.innerHTML  = "Video: " + videoFilename + " Frame num: " + frameNum + "/" + frameNumTotal + " Video current time (MS): " + frameTimeIntoVideoMS;
+    pDiag.innerHTML  = "Video: " + videoFilename + "<br> Frame num: " + frameNum + "/" + frameNumTotal + " Video current time (MS): " + frameTimeIntoVideoMS;
     //console.log( "Frame num: " + frameNum + "    Video current time: " + frameTimeIntoVideoMS );
 
     var eDiag = document.getElementById("wgError")

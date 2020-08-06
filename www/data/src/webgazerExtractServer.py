@@ -28,6 +28,7 @@ import json, csv, urllib
 import cv2
 import numpy as np
 
+import pdb
 # TODO
 # - Check Aaron's timestamps
 # - Fix screen cap write out
@@ -197,7 +198,6 @@ class ParticipantData:
         ########################
         # WebGazer event log
         # *dot_test_instructions.webm is the first video file.
-        print(self.directory," directory")
         webMFile = glob.glob( self.directory + '/' + '*dot_test_instructions.webm' )
         # Split the video name into its pieces
         f = os.path.split( webMFile[0] )[1]
@@ -562,7 +562,8 @@ def writeDataToCSV( p, msg ):
         # Target dir for output
         outDir = outputPrefix + '/' + participant.directory + '/' + participant.videos[participant.videosPos].filename + "_frames" + '/'
         # Target gaze predictions csv
-        gpCSV = outDir + '/' + csvTempName
+        gpCSV = outDir + '/' +  video + csvTempName 
+
 
         with open( gpCSV, 'a', newline='' ) as f:
             # Note no quotes between clmTracker and eyeFeatures
@@ -627,14 +628,14 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
 
             # We may have already processed this video...
-            gpCSVDone = outDir + '/' + csvDoneName
-            gpCSV = outDir + '/' + csvTempName
+            gpCSVDone = outDir + '/' + video + '_' + csvDoneName
+            gpCSV = outDir + '/' + video + '_' + csvTempName
             if os.path.isfile( gpCSVDone ):
-                print( "    " + csvDoneName + " already exists and completed; moving on to next video...")
+                print( "    " + video + '_' + csvDoneName + " already exists and completed; moving on to next video...")
                 sendVideoEnd( self )
                 return
             elif os.path.isfile( gpCSV ):
-                print( "    " + csvTempName + " exists but does not have an entry for each file; deleting csv and starting this video again...")
+                print( "    " + video + '_' + csvTempName + " exists but does not have an entry for each file; deleting csv and starting this video again...")
                 os.remove(gpCSV)
 
                 # Write the header for the new gazePredictions.csv file
@@ -746,8 +747,8 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
                     closeScreenCapOutVideo( participant )
 
                 outDir = outputPrefix + '/' + participant.directory + '/' + pv.filename + "_frames" + '/'
-                gpCSV = outDir + '/' + csvTempName
-                gpCSVDone = outDir + '/' + csvDoneName
+                gpCSV = outDir + '/' +  video + csvTempName
+                gpCSVDone = outDir + '/' + video + "_" + csvDoneName
                 if os.path.isfile( gpCSV ):
                     os.rename( gpCSV, gpCSVDone )
 
