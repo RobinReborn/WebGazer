@@ -38,8 +38,8 @@ var screencapTimeOffsetMS = 0;
 
 var participant_id = "";
 var total_participants = 64;
-var video_number = 0;
-var total_videos = 26;
+var video_number = 1;
+var total_videos = 6;
 
 function toggleScreenCap()
 {
@@ -144,7 +144,7 @@ function onLoad()
                 touchTypist = obj.touchTypist;
                 screencapVideo.src = obj.participantScreenCapFile;
                 participant_id = obj.participantScreenCapFile.substring(2,4)
-                video_number = 0;
+                video_number = 1;
 
                 // Server has told us we are switching participants.
                 // Let's load the input log for this participant from the server

@@ -28,7 +28,6 @@ import numpy as np
 from videoProcessing import readImageRGBA,loadScreenCapVideo,writeScreenCapOutputFrames,openScreenCapOutVideo,\
     closeScreenCapOutVideo,sendVideoFrame,sendVideoEnd
 import global_variables
-import pdb
 # TODO
 # - Check Aaron's timestamps
 # - Fix screen cap write out
@@ -355,7 +354,7 @@ def writeDataToCSV( p, msg ):
     del out['msgID']
     out['participant'] = p.directory
     pv = p.videos[p.videosPos]
-    #pdb.set_trace()
+    ()
     out['frameImageFile'] = pv.frameFilesList[ pv.frameFilesPos ]
     
     out["tobiiLeftScreenGazeX"] = td.leftScreenGazeX
@@ -385,14 +384,14 @@ def writeDataToCSV( p, msg ):
             global_variables.participant.videos[global_variables.participant.videosPos].filename \
             + "_frames" + '/'
         # Target gaze predictions csv
-        gpCSV = outDir + global_variables.participant.directory + '_'  + pv.filename + csvTempName 
-
+        gpCSV = outDir + global_variables.participant.directory + '_'  + pv.filename + '_' + csvTempName 
 
         with open( gpCSV, 'a', newline='' ) as f:
             # Note no quotes between clmTracker and eyeFeatures
             # f.write( "\"" + participant.directory + "\",\"" + fname + "\",\"" + str(frameTimeEpoch) + "\",\"" + str(frameNum) + "\",\"" + str(mouseMoveX) + "\",\"" + str(mouseMoveY) + "\",\"" + str(mouseClickX) + "\",\"" + str(mouseClickY) + "\",\"" + keyPressed + "\",\"" + str(keyPressedX) + "\",\"" + str(keyPressedY) + "\",\"" + str(td.leftScreenGazeX) + "\",\"" + str(td.leftScreenGazeY) + "\",\"" + str(td.rightScreenGazeX) + "\",\"" + str(td.rightScreenGazeY) + "\",\"" + str(wgCurrentX) + "\",\"" + str(wgCurrentY) + "\"," + str(clmPos) + "," + str(eyeFeatures) + "\n")
+            ()
             writer = csv.DictWriter(f, fieldnames=fieldnames,delimiter=',',quoting=csv.QUOTE_ALL)
-            #pdb.set_trace()
+            ()
             writer.writerow( out )
 
     return frameTimeEpoch
@@ -447,19 +446,19 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             # We may have already processed this video...
             gpCSVDone = outDir + global_variables.participant.directory + '_' + pv.filename + '_' + csvDoneName
             gpCSV = outDir + global_variables.participant.directory + '_'  + pv.filename + '_' + csvTempName
-
+            ()
             if os.path.isfile(gpCSVDone ):
-                print( "    " + video + csvDoneName + " already exists and completed; moving on to next video...")
+                print( "    " + gpCSVDone + " already exists and completed; moving on to next video...")
                 sendVideoEnd( self )
                 return
             elif os.path.isfile(gpCSV ):
-                print( "    " + video + csvTempName + " exists but does not have an entry for each file; deleting csv and starting this video again...")
+                print( "    " + gpCSV + " exists but does not have an entry for each file; deleting csv and starting this video again...")
                 os.remove(gpCSV)
 
                 # Write the header for the new gazePredictions.csv file
                 if writeCSV:
                     with open(gpCSV, 'w', newline='' ) as csvfile:
-                        #pdb.set_trace()
+                        ()
                         writer = csv.DictWriter(csvfile, fieldnames=fieldnames,delimiter=',',quoting=csv.QUOTE_ALL)
                         writer.writeheader()            
 
@@ -469,7 +468,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             framesDoneFile = outDir + '/' + "framesExtracted.txt"
             if not os.path.isfile( framesDoneFile ):
                 print( "    Extracting video frames (might take a few minutes)... " + str(video) )
-                #pdb.set_trace()
+                ()
                 completedProcess = subprocess.run('ffmpeg -i "./' + video + '" -vf showinfo "' + outDir + 'frame_%08d.png"'\
                     , stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, shell=True)
 
