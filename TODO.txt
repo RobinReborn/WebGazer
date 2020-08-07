@@ -23,3 +23,5 @@ add an error column
 make saving images optional
 
 make extract UI friendlier - ie give number of videos completed/to go
+
+get header back in .csv files
