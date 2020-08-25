@@ -1,7 +1,9 @@
+'use strict';
 
 console.log('thread starting');
-//importScripts('../src/util.js', '../src/mat.js');
-@import "src/mat.js"
+
+// Add src/util.mjs and src/mat.mjs to the same directory as your html file
+importScripts('./worker_scripts/util.mjs', './worker_scripts/mat.mjs'); // [20200708] Figure out how to make all of this wrap up neatly
 var ridgeParameter = Math.pow(10,-5);
 var resizeWidth = 10;
 var resizeHeight = 6;
@@ -12,21 +14,19 @@ var trainInterval = 500;
 var screenXClicksArray = new self.webgazer.util.DataWindow(dataWindow);
 var screenYClicksArray = new self.webgazer.util.DataWindow(dataWindow);
 var eyeFeaturesClicks = new self.webgazer.util.DataWindow(dataWindow);
+var dataClicks = new self.webgazer.util.DataWindow(dataWindow);
 
 var screenXTrailArray = new self.webgazer.util.DataWindow(trailDataWindow);
 var screenYTrailArray = new self.webgazer.util.DataWindow(trailDataWindow);
 var eyeFeaturesTrail = new self.webgazer.util.DataWindow(trailDataWindow);
-
-var dataClicks = new self.webgazer.util.DataWindow(dataWindow);
-var dataTrail = new self.webgazer.util.DataWindow(dataWindow);
-
+var dataTrail = new self.webgazer.util.DataWindow(trailDataWindow);
 
 /**
  * Performs ridge regression, according to the Weka code.
- * @param {array} y corresponds to screen coordinates (either x or y) for each of n click events
- * @param {array of arrays} X corresponds to gray pixel features (120 pixels for both eyes) for each of n clicks
- * @param {array} ridge ridge parameter
- * @return{array} regression coefficients
+ * @param {Array} y - corresponds to screen coordinates (either x or y) for each of n click events
+ * @param {Array.<Array.<Number>>} X - corresponds to gray pixel features (120 pixels for both eyes) for each of n clicks
+ * @param {Array} k - ridge parameter
+ * @return{Array} regression coefficients
  */
 function ridge(y, X, k){
     var nc = X[0].length;
@@ -47,11 +47,11 @@ function ridge(y, X, k){
             m_Coefficients[i] = bb[i][0];
         }
         try{
-            var n = (m_Coefficients.length != 0 ? m_Coefficients.length/m_Coefficients.length: 0);
-            if (m_Coefficients.length*n != m_Coefficients.length){
-                console.log("Array length must be a multiple of m")
+            var n = (m_Coefficients.length !== 0 ? m_Coefficients.length/m_Coefficients.length: 0);
+            if (m_Coefficients.length*n !== m_Coefficients.length){
+                console.log('Array length must be a multiple of m')
             }
-            solution = (ss.length == ss[0].length ? (self.webgazer.mat.LUDecomposition(ss,bb)) : (self.webgazer.mat.QRDecomposition(ss,bb)));
+            solution = (ss.length === ss[0].length ? (self.webgazer.mat.LUDecomposition(ss,bb)) : (self.webgazer.mat.QRDecomposition(ss,bb)));
 
             for (var i = 0; i < nc; i++){
                 m_Coefficients[i] = solution[i][0];
@@ -67,6 +67,11 @@ function ridge(y, X, k){
     return m_Coefficients;
 }
 
+//TODO: still usefull ???
+/**
+ *
+ * @returns {Number}
+ */
 function getCurrentFixationIndex() {
     var index = 0;
     var recentX = this.screenXTrailArray.get(0);
@@ -82,7 +87,10 @@ function getCurrentFixationIndex() {
     return i;
 }
 
-
+/**
+ * Event handler, it store screen position to allow training
+ * @param {Event} event - the receive event
+ */
 self.onmessage = function(event) {
     var data = event.data;
     var screenPos = data['screenPos'];
@@ -101,10 +109,13 @@ self.onmessage = function(event) {
         self.dataTrail.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
     }
     self.needsTraining = true;
-}
+};
 
+/**
+ * Compute coefficient from training data
+ */
 function retrain() {
-    if (self.screenXClicksArray.length == 0) {
+    if (self.screenXClicksArray.length === 0) {
         return;
     }
     if (!self.needsTraining) {
@@ -116,9 +127,9 @@ function retrain() {
 
     var coefficientsX = ridge(screenXArray, eyeFeatures, ridgeParameter);
     var coefficientsY = ridge(screenYArray, eyeFeatures, ridgeParameter);
-    console.log(coefficientsX);
     self.postMessage({'X':coefficientsX, 'Y': coefficientsY});
     self.needsTraining = false;
 }
 
 setInterval(retrain, trainInterval);
+

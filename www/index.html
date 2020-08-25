@@ -251,12 +251,12 @@ prediction.y; //now always in the bounds of the viewport
                     <h4 class="pad">Build from source</h3>
                     The GitHub repository can be found <a href="https://github.com/brownhci/WebGazer.git">here</a>.
                     <pre><code class="bash"># Ensure NodeJS is downloaded: https://nodejs.org/en/download/
-npm install -g grunt-cli
 git clone https://github.com/brownhci/WebGazer.git
 cd WebGazer
+#install the dependencies
 npm install
-# Run grunt to build the webgazer.js file in the build directory
-grunt
+#build the project
+npm run build
                     </code></pre>
                 </div>
             </div>
@@ -272,7 +272,7 @@ grunt
                     <h4 class="pad">Calibration on Empty Page</h4>
                     <p>See how easy it is to integrate WebGazer.js on any webpage. With just a few clicks you will get real-time predictions. Follow the popup instructions to click through 9 calibration points on the screen whilst looking at the cursor.
                         <form method="get" action="calibration.html">
-                        <button class="btn btn-primary" type="submit">Try Live Demo</button>
+                        <button id='calibration_button' class="btn btn-primary" type="submit">Try Live Demo</button>
                     </form>
                     </p>
                 </div>
@@ -280,8 +280,8 @@ grunt
                     <img src="media/example/collision.png" alt="Collision demo" width="300" height="250">
                     <h4 class="pad">Ball Collision Game</h4>
                     <p class="text-justify">Move the orange ball with your eyes and create collisions with the blue balls. Train WebGazer.js by clicking in various locations within the screen, while looking at your cursor.
-                        <form method="get" action="speedometer.html">
-                        <button class="btn btn-primary" type="submit">Try Live Demo</button>
+                        <form method="get" action="collision.html">
+                        <button id='collision_button' class="btn btn-primary" type="submit">Try Live Demo</button>
                     </form>
                     </p>
                 </div>
@@ -403,7 +403,7 @@ grunt
                 </div>
                 <div class="col-lg-2">
                     <img class="rounded-circle mx-auto d-block" src="media/people/aaron.jpg" alt="Aaron Gokaslan" height="140">
-                    <h4 class="text-center">Aaron Gokaslan</h4>
+                    <h4 class="text-center"><a href="https://skylion007.github.io/">Aaron Gokaslan</a></h4>
                 </div>
                 <div class="col-lg-2">
                     <img class="rounded-circle mx-auto d-block" src="media/people/ida.jpg" alt="Ida De Smet" height="140">
@@ -411,7 +411,7 @@ grunt
                 </div>
                 <div class="col-lg-2">
                     <img class="rounded-circle mx-auto d-block" src="media/people/xander.jpg" alt="Xander Koo" height="140">
-                    <h4 class="text-center"><a href="https://www.linkedin.com/in/xanderkoo/">Jack Wong</a></h4>
+                    <h4 class="text-center"><a href="https://www.linkedin.com/in/xanderkoo/">Xander Koo</a></h4>
                 </div>
                 <div class="col-lg-2">
                     <img class="rounded-circle mx-auto d-block" src="media/people/james.jpg" alt="James Tompkin" height="140">
