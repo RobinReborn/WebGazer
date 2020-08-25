@@ -1,5 +1,4 @@
 import {isInside,getMousePos,get_distance,onload,initial_dimensions,destination_dimensions,beep,checkTime} from './helpers.js';
-//import {h337} from '../node_modules/heatmap.js/build/heatmap.js'
 
 
 window.applyKalmanFilter = true;
