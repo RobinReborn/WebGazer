@@ -139,7 +139,7 @@ class ParticipantData:
             f = os.path.split( webMFile[0] )[1]
         except IndexError:
             raise OSError('Files are not in right location, see https://webgazer.cs.brown.edu/data/ for details'\
-            + 'on how to correct this')
+            + ' on how to correct this')
 
         # Find the first part of the video filename, which is the timestamp as a string
         self.startTimestamp = int(f[0:f.find('_')])
@@ -258,6 +258,8 @@ def newParticipant( wsh ):
         exit()
     else:
         # Load the participant data
+        print(global_variables.participantDirList)
         global_variables.participant = ParticipantData( global_variables.participantDirList[global_variables.participantPos] )
+        global_variables.participant = ParticipantData('P_28')
         global_variables.participant.loadParticipantData()
         sendParticipantInfo( wsh, global_variables.participant )

@@ -86617,8 +86617,11 @@ util.Eye = function(patch, imagex, imagey, width, height) {
     this.width = width;
     this.height = height;
 };
-
-function diamondEyes(eye){
+/**
+ * @param {eye} webgazer.util.Eye
+ * @return ImageData 
+ **/
+util.diamondEyes = function(eye){
     var height = eye.height, width = eye.width, diamond = [],
     offset = 0, wmidpoint = Math.floor(eye.width/2),
     hmidpoint = Math.floor(eye.height/2),
@@ -86627,8 +86630,8 @@ function diamondEyes(eye){
         loc = Math.floor(x/4)
         h = Math.floor(loc/width)
         w = loc - (h*width)
-        if (h > hmidpoint) {offset=(Math.floor(width/height)*(hmidpoint-(Math.abs(hmidpoint-h))))} 
-            else {offset=h*Math.floor(width/height)}
+        if (h > hmidpoint) {offset=(Math.floor(width/height*(hmidpoint-(Math.abs(hmidpoint-h)))))} 
+            else {offset=Math.floor(h*width/height)}
         if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
             diamond.push(eye.data[x]);
         }
@@ -86641,13 +86644,13 @@ function diamondEyes(eye){
 }
 
 util.getEyeFeats = function(eyes) {
-    var resizedLeft = this.resizeEye(eyes.left, resizeHeight, resizeHeight);
-    var resizedRight = this.resizeEye(eyes.right, resizeHeight, resizeHeight);
+    var resizedLeft = this.resizeEye(eyes.left, resizeWidth, resizeHeight);
+    var resizedRight = this.resizeEye(eyes.right, resizeWidth, resizeHeight);
 
     // var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
     // var rightGray = this.grayscale(resizedright.data, resizedright.width, resizedright.height);
-    var l_min = diamondEyes(resizedLeft);
-    var r_min = diamondEyes(resizedRight);
+    var l_min = this.diamondEyes(resizedLeft);
+    var r_min = this.diamondEyes(resizedRight);
     var leftGray = this.grayscale(l_min, l_min.length, 1);
     var rightGray = this.grayscale(r_min, r_min.length, 1);
 
@@ -87033,6 +87036,10 @@ util.KalmanFilter.prototype.update = function(z) {
     this.P = mult(sub(identity(K.length), mult(K,this.H)), P_p);
     return transpose(mult(this.H, this.X))[0]; //Transforms the predicted state back into it's measurement form
 };
+
+/**
+ * Initialize new arrays and initialize Kalman filter for regressions.
+ */
 util.InitRegression = function() {
   var dataWindow = 700;
   var trailDataWindow = 10;

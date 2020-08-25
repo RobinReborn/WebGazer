@@ -90,7 +90,11 @@ var EyeListener = async function(data, clock) {
   // }
   //ctxl.putImageData(patches.left.patch,0,0)
   ctxl.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
+  patches.left.patch = new ImageData(new Uint8ClampedArray(webgazer.util.diamondEyes(patches.left.patch))
+    ,patches.left.width,patches.left.height)
   ctxr.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
+
+
   
   
   if (time_initial == 0){
