@@ -31,11 +31,12 @@ export async function onload(setup,listener) {
       var localstorageSettingsLabel = 'webgazerGlobalSettings';
       localforage.setItem(localstorageSettingsLabel, null);
   }
+  webgazer.params.showVideoPreview = true;
 
-  const webgazerInstance = await webgazer.setRegression('ridgeWeightedReg') /* currently must set regression and tracker */
+  const webgazerInstance = await webgazer.setRegression('ridge') /* currently must set regression and tracker */
   .setTracker('TFFacemesh')
   .begin();
-  webgazerInstance.showPredictionPoints(false); /* shows a square every 100 milliseconds where current prediction is */
+  webgazerInstance.showPredictionPoints(true); /* shows a square every 100 milliseconds where current prediction is */
 
   function checkIfReady() {
     var feedbackBox = document.getElementById( webgazer.params.faceFeedbackBoxId );

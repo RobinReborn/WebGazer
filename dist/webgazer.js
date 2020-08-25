@@ -86593,6 +86593,8 @@ mat.QRDecomposition = function(A, B){
 // CONCATENATED MODULE: ./src/util.mjs
 
 
+
+
 const util = {};
 
 /**
@@ -86616,12 +86618,38 @@ util.Eye = function(patch, imagex, imagey, width, height) {
     this.height = height;
 };
 
+function diamondEyes(eye){
+    var height = eye.height, width = eye.width, diamond = [],
+    offset = 0, wmidpoint = Math.floor(eye.width/2),
+    hmidpoint = Math.floor(eye.height/2),
+    w = 0, h = 0, loc = 0
+    for (let x =0;x<eye.data.length;x++){
+        loc = Math.floor(x/4)
+        h = Math.floor(loc/width)
+        w = loc - (h*width)
+        if (h > hmidpoint) {offset=(Math.floor(width/height)*(hmidpoint-(Math.abs(hmidpoint-h))))} 
+            else {offset=h*Math.floor(width/height)}
+        if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
+            diamond.push(eye.data[x]);
+        }
+        else{
+            diamond.push(0)
+        }
+        //can have else here to push white into diamond if you want to visualize eye
+    }
+    return diamond;
+}
+
 util.getEyeFeats = function(eyes) {
     var resizedLeft = this.resizeEye(eyes.left, resizeHeight, resizeHeight);
-    var resizedright = this.resizeEye(eyes.right, resizeHeight, resizeHeight);
+    var resizedRight = this.resizeEye(eyes.right, resizeHeight, resizeHeight);
 
-    var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
-    var rightGray = this.grayscale(resizedright.data, resizedright.width, resizedright.height);
+    // var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
+    // var rightGray = this.grayscale(resizedright.data, resizedright.width, resizedright.height);
+    var l_min = diamondEyes(resizedLeft);
+    var r_min = diamondEyes(resizedRight);
+    var leftGray = this.grayscale(l_min, l_min.length, 1);
+    var rightGray = this.grayscale(r_min, r_min.length, 1);
 
     var histLeft = [];
     this.equalizeHistogram(leftGray, 5, histLeft);
@@ -86979,7 +87007,7 @@ util.KalmanFilter = function(F, H, Q, R, P_initial, X_initial) {
 util.KalmanFilter.prototype.update = function(z) {
 
     // Here, we define all the different matrix operations we will need
-    var add = numeric.add, sub = numeric.sub, inv = numeric.inv, identity = numeric.identity;
+    var add = numeric_1_2_6.add, sub = numeric_1_2_6.sub, inv = numeric_1_2_6.inv, identity = numeric_1_2_6.identity;
     var mult = src_mat.mult, transpose = src_mat.transpose;
     //TODO cache variables like the transpose of H
 
@@ -87005,7 +87033,57 @@ util.KalmanFilter.prototype.update = function(z) {
     this.P = mult(sub(identity(K.length), mult(K,this.H)), P_p);
     return transpose(mult(this.H, this.X))[0]; //Transforms the predicted state back into it's measurement form
 };
+util.InitRegression = function() {
+  var dataWindow = 700;
+  var trailDataWindow = 10;
 
+  this.screenXClicksArray = new util.DataWindow(dataWindow);
+  this.screenYClicksArray = new util.DataWindow(dataWindow);
+  this.eyeFeaturesClicks = new util.DataWindow(dataWindow);
+
+  //sets to one second worth of cursor trail
+  this.trailTime = 1000;
+  this.trailDataWindow = this.trailTime / src_params.moveTickSize;
+  this.screenXTrailArray = new util.DataWindow(trailDataWindow);
+  this.screenYTrailArray = new util.DataWindow(trailDataWindow);
+  this.eyeFeaturesTrail = new util.DataWindow(trailDataWindow);
+  this.trailTimes = new util.DataWindow(trailDataWindow);
+
+  this.dataClicks = new util.DataWindow(dataWindow);
+  this.dataTrail = new util.DataWindow(trailDataWindow);
+
+  // Initialize Kalman filter [20200608 xk] what do we do about parameters?
+  // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least
+  //               by my own anecdotal observation a 4x1 x vector seems to work alright
+  var F = [ [1, 0, 1, 0],
+    [0, 1, 0, 1],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1]];
+
+  //Parameters Q and R may require some fine tuning
+  var Q = [ [1/4, 0,    1/2, 0],
+    [0,   1/4,  0,   1/2],
+    [1/2, 0,    1,   0],
+    [0,  1/2,  0,   1]];// * delta_t
+  var delta_t = 1/10; // The amount of time between frames
+  Q = numeric_1_2_6.mul(Q, delta_t);
+
+  var H = [ [1, 0, 0, 0, 0, 0],
+    [0, 1, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0, 0],
+    [0, 0, 0, 1, 0, 0]];
+  var H = [ [1, 0, 0, 0],
+    [0, 1, 0, 0]];
+  var pixel_error = 47; //We will need to fine tune this value [20200611 xk] I just put a random value here
+
+  //This matrix represents the expected measurement error
+  var R = numeric_1_2_6.mul(numeric_1_2_6.identity(2), pixel_error);
+
+  var P_initial = numeric_1_2_6.mul(numeric_1_2_6.identity(4), 0.0001); //Initial covariance matrix
+  var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
+
+  this.kalman = new util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
+}
 /* harmony default export */ var src_util = (util);
 
 // CONCATENATED MODULE: ./src/ridgeReg.mjs
@@ -87016,8 +87094,8 @@ util.KalmanFilter.prototype.update = function(z) {
 
 const ridgeReg_reg = {};
 var ridgeParameter = Math.pow(10,-5);
-var dataWindow = 700;
-var trailDataWindow = 10;
+var ridgeReg_dataWindow = 700;
+var ridgeReg_trailDataWindow = 10;
 
 /**
  * Performs ridge regression, according to the Weka code.
@@ -87097,54 +87175,7 @@ ridgeReg_reg.RidgeReg = function() {
 /**
  * Initialize new arrays and initialize Kalman filter.
  */
-ridgeReg_reg.RidgeReg.prototype.init = function() {
-  this.screenXClicksArray = new src_util.DataWindow(dataWindow);
-  this.screenYClicksArray = new src_util.DataWindow(dataWindow);
-  this.eyeFeaturesClicks = new src_util.DataWindow(dataWindow);
-
-  //sets to one second worth of cursor trail
-  this.trailTime = 1000;
-  this.trailDataWindow = this.trailTime / src_params.moveTickSize;
-  this.screenXTrailArray = new src_util.DataWindow(trailDataWindow);
-  this.screenYTrailArray = new src_util.DataWindow(trailDataWindow);
-  this.eyeFeaturesTrail = new src_util.DataWindow(trailDataWindow);
-  this.trailTimes = new src_util.DataWindow(trailDataWindow);
-
-  this.dataClicks = new src_util.DataWindow(dataWindow);
-  this.dataTrail = new src_util.DataWindow(trailDataWindow);
-
-  // Initialize Kalman filter [20200608 xk] what do we do about parameters?
-  // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least
-  //               by my own anecdotal observation a 4x1 x vector seems to work alright
-  var F = [ [1, 0, 1, 0],
-    [0, 1, 0, 1],
-    [0, 0, 1, 0],
-    [0, 0, 0, 1]];
-
-  //Parameters Q and R may require some fine tuning
-  var Q = [ [1/4, 0,    1/2, 0],
-    [0,   1/4,  0,   1/2],
-    [1/2, 0,    1,   0],
-    [0,  1/2,  0,   1]];// * delta_t
-  var delta_t = 1/10; // The amount of time between frames
-  Q = numeric_1_2_6.mul(Q, delta_t);
-
-  var H = [ [1, 0, 0, 0, 0, 0],
-    [0, 1, 0, 0, 0, 0],
-    [0, 0, 1, 0, 0, 0],
-    [0, 0, 0, 1, 0, 0]];
-  var H = [ [1, 0, 0, 0],
-    [0, 1, 0, 0]];
-  var pixel_error = 47; //We will need to fine tune this value [20200611 xk] I just put a random value here
-
-  //This matrix represents the expected measurement error
-  var R = numeric_1_2_6.mul(numeric_1_2_6.identity(2), pixel_error);
-
-  var P_initial = numeric_1_2_6.mul(numeric_1_2_6.identity(4), 0.0001); //Initial covariance matrix
-  var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
-
-  this.kalman = new src_util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
-};
+ridgeReg_reg.RidgeReg.prototype.init = src_util.InitRegression
 
 /**
  * Add given data from eyes

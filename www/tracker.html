@@ -4,25 +4,26 @@
   <title>Tracker</title>
 </head>
 <body>
-  <link rel="stylesheet" type="text/css" href="css/style.css">
-  <script src="https://d3js.org/d3.v3.min.js"></script>
-  
-  <script src="./webgazer.js"></script>
-  <button id='calibrate_button'>Done Calibrating</button>
-  <button id='calibrate_blink_button'>Calibrate Blink</button>
+	<link rel="stylesheet" type="text/css" href="css/style.css">
+	<script src="https://d3js.org/d3.v3.min.js"></script>
+	<script src="./node_modules/heatmap.js/build/heatmap.js"></script>
+	<script src="./webgazer.js"></script>
+	<script src='js/tracker.js' type="module"></script>
 
-  <div id="eye_tracking_data"></div> 
-<button id="create">Create file</button> 
-<button id="see_heatmap">See Heatmap</button> 
-<a download="info.txt" id="downloadlink"></a>
-<a download='closed_photo' id ='closed_downloadphoto'></a>
+	<button id='calibrate_button'>Done Calibrating</button>
+	<button id='calibrate_blink_button'>Calibrate Blink</button>
 
-<a download='open_photo' id ='open_downloadphoto'></a>
-<a download='heatmap.jpg' id ='heatmap_link'></a>
-  <script src='js/tracker.js' type="module"></script>
-<div id='heatmap'></div>
-<canvas id='eye_image_left'></canvas>
-<canvas id='eye_image_right'></canvas>
-<br>
-<canvas id='test_canvas'></canvas>
+	<div id="eye_tracking_data"></div> 
+	<button id="create">Create file</button> 
+	<button id="see_heatmap">See Heatmap</button> 
+	<a download="info.txt" id="downloadlink"></a>
+	<a download='closed_photo' id ='closed_downloadphoto'></a>
+
+	<a download='open_photo' id ='open_downloadphoto'></a>
+	<a download='heatmap.jpg' id ='heatmap_link'></a>
+	<div id='heatmap'></div>
+	<canvas id='eye_image_left'></canvas>
+	<canvas id='eye_image_right'></canvas>
+	<br>
+	<canvas id='test_canvas'></canvas>
 </body>

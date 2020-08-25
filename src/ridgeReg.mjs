@@ -86,54 +86,7 @@ reg.RidgeReg = function() {
 /**
  * Initialize new arrays and initialize Kalman filter.
  */
-reg.RidgeReg.prototype.init = function() {
-  this.screenXClicksArray = new util.DataWindow(dataWindow);
-  this.screenYClicksArray = new util.DataWindow(dataWindow);
-  this.eyeFeaturesClicks = new util.DataWindow(dataWindow);
-
-  //sets to one second worth of cursor trail
-  this.trailTime = 1000;
-  this.trailDataWindow = this.trailTime / params.moveTickSize;
-  this.screenXTrailArray = new util.DataWindow(trailDataWindow);
-  this.screenYTrailArray = new util.DataWindow(trailDataWindow);
-  this.eyeFeaturesTrail = new util.DataWindow(trailDataWindow);
-  this.trailTimes = new util.DataWindow(trailDataWindow);
-
-  this.dataClicks = new util.DataWindow(dataWindow);
-  this.dataTrail = new util.DataWindow(trailDataWindow);
-
-  // Initialize Kalman filter [20200608 xk] what do we do about parameters?
-  // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least
-  //               by my own anecdotal observation a 4x1 x vector seems to work alright
-  var F = [ [1, 0, 1, 0],
-    [0, 1, 0, 1],
-    [0, 0, 1, 0],
-    [0, 0, 0, 1]];
-
-  //Parameters Q and R may require some fine tuning
-  var Q = [ [1/4, 0,    1/2, 0],
-    [0,   1/4,  0,   1/2],
-    [1/2, 0,    1,   0],
-    [0,  1/2,  0,   1]];// * delta_t
-  var delta_t = 1/10; // The amount of time between frames
-  Q = numeric.mul(Q, delta_t);
-
-  var H = [ [1, 0, 0, 0, 0, 0],
-    [0, 1, 0, 0, 0, 0],
-    [0, 0, 1, 0, 0, 0],
-    [0, 0, 0, 1, 0, 0]];
-  var H = [ [1, 0, 0, 0],
-    [0, 1, 0, 0]];
-  var pixel_error = 47; //We will need to fine tune this value [20200611 xk] I just put a random value here
-
-  //This matrix represents the expected measurement error
-  var R = numeric.mul(numeric.identity(2), pixel_error);
-
-  var P_initial = numeric.mul(numeric.identity(4), 0.0001); //Initial covariance matrix
-  var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
-
-  this.kalman = new util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
-};
+reg.RidgeReg.prototype.init = util.InitRegression
 
 /**
  * Add given data from eyes

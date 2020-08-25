@@ -1,4 +1,6 @@
 import {isInside,getMousePos,get_distance,onload,initial_dimensions,destination_dimensions,beep,checkTime} from './helpers.js';
+//import {h337} from '../node_modules/heatmap.js/build/heatmap.js'
+
 
 window.applyKalmanFilter = true;
 
@@ -7,7 +9,7 @@ window.saveDataAcrossSessions = true;
 const collisionSVG = "collisionSVG";
 
 let blinks = 0;
-var blink_detector = new webgazer.BlinkDetector();
+//var blink_detector = new webgazer.BlinkDetector();
 var color_sum_open = 0;
 var color_sum_closed = 0;
 var color_sum_open = 0;
@@ -87,8 +89,8 @@ var EyeListener = async function(data, clock) {
 
   // }
   //ctxl.putImageData(patches.left.patch,0,0)
-  ctxl.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
-  ctxr.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
+  ctxl.putImageData(webgazer.util.resizeEye(patches.right,150,90),0,0)
+  ctxr.putImageData(webgazer.util.resizeEye(patches.left,150,90),0,0)
   
   
   if (time_initial == 0){
