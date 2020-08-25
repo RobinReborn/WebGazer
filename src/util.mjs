@@ -444,6 +444,10 @@ util.InitRegression = function() {
   var dataWindow = 700;
   var trailDataWindow = 10;
 
+  this.errorXArray = new util.DataWindow(dataWindow);
+  this.errorYArray = new util.DataWindow(dataWindow);
+
+
   this.screenXClicksArray = new util.DataWindow(dataWindow);
   this.screenYClicksArray = new util.DataWindow(dataWindow);
   this.eyeFeaturesClicks = new util.DataWindow(dataWindow);

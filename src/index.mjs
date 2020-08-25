@@ -323,6 +323,14 @@ async function loop() {
       // GazeDot
       if (webgazer.params.showGazeDot) {
         gazeDot.style.display = 'block';
+        if (regs[0].errorXArray.length != 0){
+          let xclicks = webgazer.getRegression()[0].errorXArray;
+          let sum = xclicks.data.reduce((a, b) => Math.abs(a) + Math.abs(b),0);
+          gazeDot.style.width = String(sum/xclicks.length)+"px";
+          let yclicks = webgazer.getRegression()[0].errorYArray;
+          sum = yclicks.data.reduce((a, b) => Math.abs(a) + Math.abs(b),0);
+          gazeDot.style.height = String(sum/yclicks.length)+"px";
+        }
       }
       gazeDot.style.transform = 'translate3d(' + pred.x + 'px,' + pred.y + 'px,0)';
     } else {
@@ -540,7 +548,7 @@ async function init(stream) {
   gazeDot.style.opacity = '0.7';
   gazeDot.style.width = '10px';
   gazeDot.style.height = '10px';
-
+  
   // Add other preview/feedback elements to the screen once the video has shown and its parameters are initialized
   document.body.appendChild(videoElement);
   function setupPreviewVideo(e) {

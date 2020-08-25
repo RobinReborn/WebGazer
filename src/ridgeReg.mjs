@@ -5,8 +5,6 @@ import params from './params';
 
 const reg = {};
 var ridgeParameter = Math.pow(10,-5);
-var dataWindow = 700;
-var trailDataWindow = 10;
 
 /**
  * Performs ridge regression, according to the Weka code.
@@ -109,6 +107,9 @@ reg.RidgeReg.prototype.addData = function(eyes, screenPos, type) {
 
     this.eyeFeaturesClicks.push(util.getEyeFeats(eyes));
     this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
+
+    this.errorXArray.push(this.predict(eyes).x - screenPos[0])
+    this.errorYArray.push(this.predict(eyes).y - screenPos[1])
   } else if (type === 'move') {
     this.screenXTrailArray.push([screenPos[0]]);
     this.screenYTrailArray.push([screenPos[1]]);
