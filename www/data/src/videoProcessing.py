@@ -158,11 +158,13 @@ def sendVideoFrame( wsh, fn, pv ):
                'tobiiY': "{:+.4f}".format(global_variables.tobiiCurrentY)})
     wsh.write_message( tornado.escape.json_encode(parcel) )
     wsh.write_message( readImageRGBA( fn ).tobytes(), binary=True )
-    #can delete images here for convenience - causes errors on rereading
-    #os.remove(fn)
+    print('frame sent')
+    
 
 def sendVideoEnd( wsh ):
-
+    #can delete images here for convenience - causes errors on rereading
+    #os.remove(fn)
+    
     # Progress video if not at end of video list for global_variables.participant
     if global_variables.participant.videosPos+1 >= len(global_variables.participant.videos):
         # New global_variables.participant!

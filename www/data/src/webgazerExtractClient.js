@@ -42,6 +42,7 @@ var video_number = 1;
 var total_videos = 6;
 
 var participant_list = [];
+var regression_list = [];
 
 function toggleScreenCap()
 {
@@ -58,10 +59,36 @@ function setScreenCapTimeOffset()
     console.log( screencapTimeOffsetMS )
 }
 
-function onLoad() 
+async function onLoad() 
 {
+    let regressions = Object.values(webgazer.getRegressionMap())
+    let params = document.getElementById('params');
+
+    for(let r =0;r<regressions.length;r++){
+        regression_list.push(regressions[r].name)
+        webgazer.addRegression(regressions[r].name)
+        let reg_check = document.createElement('input');
+        reg_check.setAttribute("type","checkbox");
+        reg_check.setAttribute("id",regressions[r].name);
+        reg_check.checked = true
+        reg_check.addEventListener('change', e => {
+            if(e.target.checked && !regression_list.includes(e.target.id )){
+                regression_list.push(e.target.id);
+            }
+            else if(!e.target.checked && regression_list.includes(e.target.id )){
+                const index = regression_list.indexOf(e.target.id);
+                regression_list.splice(index,1)
+            }
+        })
+        let label = document.createElement("label");
+        label.setAttribute("for",regressions[r].name);
+        label.innerHTML = regressions[r].name;
+        params.appendChild(label); 
+        params.appendChild(reg_check)
+
+    }
     // Init webgazer and set parameters
-    webgazer.setRegression('ridge').setTracker('TFFacemesh');
+    webgazer.setTracker('TFFacemesh');
 
     // Drawing overlay
     var c = document.getElementById('wsCanvas')
@@ -95,7 +122,7 @@ function onLoad()
 
     document.body.appendChild(overlay);
 
-    fm = webgazer.getTracker();
+    fm = await webgazer.getTracker();
     // Start WebSocket
     ws = new WebSocket("ws://localhost:8000/websocket");
     ws.binaryType = "blob"
@@ -377,7 +404,12 @@ async function runWebGazerSendResult()
     var webGazerY = "-1"
     // TODO magic numbers
     var eyeFeatures = Array(eyeFeaturesSize).fill(-1)
+    //get gazedata for each regression
     var gazeData = await webgazer.getCurrentPrediction();
+    var gazeData1 = await webgazer.getCurrentPrediction(0);
+
+    var gazeData2 = await webgazer.getCurrentPrediction(1);
+    var gazeData3 = await webgazer.getCurrentPrediction(2);
     if ( gazeData )
     {
         // Gaze in [0,1] coordinates
@@ -397,9 +429,6 @@ async function runWebGazerSendResult()
         wgv.style.left = width + (webGazerX * screencapVideo.width - 5) + 'px';
     }
     
-    // Also collect the CLMTracker positions
-    // 
-    //var clmPos = cl.getCurrentPosition();
     var fmPos = fm.getPositions();
     if ( fmPos ) 
     {
@@ -408,7 +437,7 @@ async function runWebGazerSendResult()
     }
     else
     {   // Reproduce necessary structure
-        fmPos = Array(fmPosFeaturesSize/2).fill(Array(-1,-1))
+        fmPos = Array(fmPosFeaturesSize).fill(-1)
     }
 
     // Update display
@@ -439,10 +468,11 @@ async function runWebGazerSendResult()
     s.msgID = "3"
     s.frameNum = frameNum; // Sanity
     s.frameTimeEpoch = frameTimeEpoch;
-    s.webGazerX = webGazerX;
-    s.webGazerY = webGazerY;
     s.fmPos = fmPos;
     s.eyeFeatures = eyeFeatures;
+
+    s.webGazerX = webGazerX;
+    s.webGazerY = webGazerY;
     s.error = error;
     s.errorPix = errorPix;
 

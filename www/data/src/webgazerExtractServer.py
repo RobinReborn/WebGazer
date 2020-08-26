@@ -28,7 +28,7 @@ from videoProcessing import readImageRGBA,loadScreenCapVideo,writeScreenCapOutpu
     closeScreenCapOutVideo,sendVideoFrame,sendVideoEnd
 import global_variables
 from participant import ParticipantData,TobiiData,sendParticipantInfo,ParticipantVideo,newParticipant,showParticipants
-
+from write_csv import writeDataToCSV
 # TODO
 # - Check Aaron's timestamps
 # - Fix screen cap write out
@@ -45,128 +45,11 @@ csvTempName = "gazePredictions.csv"
 csvDoneName = "gazePredictionsDone.csv"
 
 # Participant characteristics file
-writeCSV = True
 
-
-
-
-
-
-##################################################################
-# CSV header object field names
-fmPosKeys = ['fmPos_%04d' % i for i in range(0, 468)]
-eyeFeaturesKeys = ['eyeFeatures_%04d' % i for i in range(0, 120)]
-fieldnames = (['participant','frameImageFile','frameTimeEpoch','frameNum','mouseMoveX','mouseMoveY',
-               'mouseClickX','mouseClickY','keyPressed','keyPressedX','keyPressedY',
-               'tobiiLeftScreenGazeX','tobiiLeftScreenGazeY','tobiiRightScreenGazeX','tobiiRightScreenGazeY',
-               'webGazerX','webGazerY','error','errorPix'])
-fieldnames.extend( fmPosKeys )
-fieldnames.extend( eyeFeaturesKeys )
-
-
-
-
-
-######################################################################################
 # Processors for messages
 
-# p = participant
-def writeDataToCSV( p, msg ):
-
-    ###########################################################################################################
-    # Store current WebGazer prediction from browser
-    global_variables.wgCurrentX = float( msg["webGazerX"] )
-    global_variables.wgCurrentY = float( msg["webGazerY"] )
-    wgError = float( msg["error"] )
-    wgErrorPix = float( msg["errorPix"] )
 
 
-    ###########################################################################################################
-    # Find the closest Tobii timestamp to our current video timestamp
-    #
-    # As time only goes forwards, tobiiListPos is a counter which persists over GET requests.
-    # The videos arrive in non-chronological order, however, so we have to reset tobiiListPos on each new video
-    frameTimeEpoch = int( msg["frameTimeEpoch"] )
-    while p.tobiiListPos < len(p.tobiiList)-2 and frameTimeEpoch - p.tobiiList[p.tobiiListPos].timestamp > 0:
-        p.tobiiListPos = p.tobiiListPos + 1
-
-    if p.tobiiListPos == len(p.tobiiList):
-        # We've come to the end of the list and there are no more events...
-        print( "Error: at end of Tobii event list; no matching timestamp" )
-        global_variables.tobiiCurrentX = -1
-        global_variables.tobiiCurrentY = -1
-    else:
-        # TobiiList
-        diffCurr = frameTimeEpoch - p.tobiiList[p.tobiiListPos].timestamp
-        diffNext = frameTimeEpoch - p.tobiiList[p.tobiiListPos+1].timestamp
-
-        # Pick the one which is closest in time
-        if abs(diffCurr) < abs(diffNext):
-            td = p.tobiiList[p.tobiiListPos]
-        else:
-            td = p.tobiiList[p.tobiiListPos+1]
-
-        # Check validity for return value
-        if td.rightEyeValid == 1 and td.leftEyeValid == 1:
-            global_variables.tobiiCurrentX = (td.leftScreenGazeX + td.rightScreenGazeX) / 2.0
-            global_variables.tobiiCurrentY = (td.leftScreenGazeY + td.rightScreenGazeY) / 2.0
-        elif td.rightEyeValid == 1 and td.leftEyeValid == 0:
-            global_variables.tobiiCurrentX = td.rightScreenGazeX
-            global_variables.tobiiCurrentY = td.rightScreenGazeY
-        elif td.rightEyeValid == 0 and td.leftEyeValid == 1:
-            global_variables.tobiiCurrentX = td.leftScreenGazeX
-            global_variables.tobiiCurrentY = td.leftScreenGazeY
-        else:
-            # Neither is valid, so we could either leave it as the previous case,
-            # which involves doing nothing, or set it to -1.
-            global_variables.tobiiCurrentX = -1
-            global_variables.tobiiCurrentY = -1
-
-    ###################################################
-    # Work out what to write out to CSV
-    out = msg
-    del out['msgID']
-    out['participant'] = p.directory
-    pv = p.videos[p.videosPos]
-    out['frameImageFile'] = pv.frameFilesList[ pv.frameFilesPos ]
-    
-    out["tobiiLeftScreenGazeX"] = td.leftScreenGazeX
-    out["tobiiLeftScreenGazeY"] = td.leftScreenGazeY
-    out["tobiiRightScreenGazeX"] = td.rightScreenGazeX
-    out["tobiiRightScreenGazeY"] = td.rightScreenGazeY
-
-    out['error'] = wgError
-    out['errorPix'] = wgErrorPix
-
-    # Turn fmPos and eyeFeatures into per-column values
-    fmPosDict = dict(zip( fmPosKeys, list(chain.from_iterable( out["fmPos"] )) ) )
-    eyeFeaturesDict = dict(zip( eyeFeaturesKeys, out["eyeFeatures"] ))
-    out.update( fmPosDict )
-    out.update( eyeFeaturesDict )
-    del out['fmPos']
-    del out['eyeFeatures']
-
-    if writeCSV:
-
-        # A reminder of what the desired field name outputs are.
-        # fieldnames = (['participant','frameImageFile','frameTimeEpoch','frameNum','mouseMoveX','mouseMoveY','mouseClickX','mouseClickY','keyPressed','keyPressedX','keyPressedY',
-        #                'tobiiLeftScreenGazeX','tobiiLeftScreenGazeY','tobiiRightScreenGazeX','tobiiRightScreenGazeY','webGazerX','webGazerY','fmPos','eyeFeatures','wgError','wgErrorPix'])
-
-        # Target dir for output
-        outDir = outputPrefix + global_variables.participant.directory + '/' + \
-            global_variables.participant.videos[global_variables.participant.videosPos].filename \
-            + "_frames" + '/'
-        # Target gaze predictions csv
-        gpCSV = outputPrefix + global_variables.participant.directory + '_'  + pv.filename + '_' + csvTempName 
-
-        with open( gpCSV, 'a', newline='' ) as f:
-            # Note no quotes between fmTracker and eyeFeatures
-            # f.write( "\"" + participant.directory + "\",\"" + fname + "\",\"" + str(frameTimeEpoch) + "\",\"" + str(frameNum) + "\",\"" + str(mouseMoveX) + "\",\"" + str(mouseMoveY) + "\",\"" + str(mouseClickX) + "\",\"" + str(mouseClickY) + "\",\"" + keyPressed + "\",\"" + str(keyPressedX) + "\",\"" + str(keyPressedY) + "\",\"" + str(td.leftScreenGazeX) + "\",\"" + str(td.leftScreenGazeY) + "\",\"" + str(td.rightScreenGazeX) + "\",\"" + str(td.rightScreenGazeY) + "\",\"" + str(wgCurrentX) + "\",\"" + str(wgCurrentY) + "\"," + str(fmPos) + "," + str(eyeFeatures) + "\n")
-            writer = csv.DictWriter(f, fieldnames=fieldnames,delimiter=',',quoting=csv.QUOTE_ALL)
-            writer.writerow( out )
-
-    return frameTimeEpoch
-################################################################################################
 
 class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
@@ -174,8 +57,8 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
         global_variables.participantPos = -1
         #send list of participants and videos to client
-        print(self,"in open")
         showParticipants( self )
+        #global_variables.participantSelectedDirList = global_variables.participantDirList
         #newParticipant( self )
 
  
@@ -206,24 +89,29 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             # We may have already processed this video...
             gpCSVDone = outputPrefix + global_variables.participant.directory + '_' + pv.filename + '_' + csvDoneName
             gpCSV = outputPrefix + global_variables.participant.directory + '_'  + pv.filename + '_' + csvTempName
+            print("gpCSV is ",gpCSV)
             if os.path.isfile(gpCSVDone ):
                 print( "    " + gpCSVDone + " already exists and completed; moving on to next video...")
                 sendVideoEnd( self )
                 return
             elif os.path.isfile( gpCSV ):
                 print( "    " + gpCSV + " exists but does not have an entry for each file; deleting csv and starting this video again...")
+                print('writing header')
                 os.remove(gpCSV)
 
                 # Write the header for the new gazePredictions.csv file
-                if writeCSV:
+                if global_variables.writeCSV:
                     with open(gpCSV, 'w', newline='' ) as csvfile:
-                        writer = csv.DictWriter(csvfile, fieldnames=fieldnames,delimiter=',',quoting=csv.QUOTE_ALL)
-                        writer.writeheader()            
+                        writer = csv.DictWriter(csvfile, fieldnames=global_variables.fieldnames,
+                            delimiter=',',quoting=csv.QUOTE_ALL)
+                        writer.writeheader()
+                        print('done writing?')
+                        #return            
 
             # If we're not done, we need to extract the video frames (using ffmpeg).
             # If this is already done, we write 'framesExtracted.txt'
             #
-            framesDoneFile = outDir + '/' + "framesExtracted.txt"
+            framesDoneFile = outDir + "framesExtracted.txt"
             if not os.path.isfile( framesDoneFile ):
                 print( "    Extracting video frames (might take a few minutes)... " + str(video) )
                 completedProcess = subprocess.run('ffmpeg -i "./' + video + '" -vf showinfo "' + outDir + 'frame_%08d.png"'\
@@ -297,6 +185,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             ########################################
             # Send the first video frame + timestamp
             #
+            print('done extracting, sending frame')
             sendVideoFrame( self, pv.frameFilesList[pv.frameFilesPos], pv )
         # 
         # End NEW VIDEO
@@ -336,12 +225,11 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
                 sendVideoFrame( self, pv.frameFilesList[pv.frameFilesPos], pv )
         elif msg['msgID'] == '5':
             global_variables.participantSelectedDirList = sorted(msg['participants'])
-            print(self,"msgid 5")
+            print('received participant message from user' ,global_variables.participantSelectedDirList)
             newParticipant(self)
 
     def on_close(self):
         pass
-
 
 class Application(tornado.web.Application):
     def __init__(self):

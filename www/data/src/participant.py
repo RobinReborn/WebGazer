@@ -135,7 +135,6 @@ class ParticipantData:
         # WebGazer event log
         # *dot_test_instructions.webm is the first video file.
         webMFile = glob.glob( self.directory + '/' + '*dot_test_instructions.webm' )
-        print('loadParticipantData',webMFile)
         # Split the video name into its pieces
         try:
             f = os.path.split( webMFile[0] )[1]
@@ -253,6 +252,7 @@ def sendParticipantInfo( wsh, participant ):
 def newParticipant( wsh ):    
     global_variables.participantPos = global_variables.participantPos + 1
     # Check we're not at the last participant
+    print('in new participant selected dir list is ' , global_variables.participantSelectedDirList)
     if global_variables.participantPos >= len(global_variables.participantSelectedDirList):
         print( "All participants completed." )
         exit()

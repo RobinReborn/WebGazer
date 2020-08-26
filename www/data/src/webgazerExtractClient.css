@@ -31,10 +31,10 @@
     left: 0px;
     z-index: 8;
 }
-#participants {
+#params {
     position: absolute;
     top: 550px;
-    left: 500px;
+    left: 1000px;
     width: 50%;
     z-index: 8;
 }
