@@ -113,6 +113,7 @@ class ParticipantData:
         return "[ParticipantData] Directory: " + self.directory + "  PC or Laptop: " + str(self.pcOrLaptop)
 
     def loadParticipantData(self):
+        
 
         ########################
         # Load participant characteristics as technical parts
@@ -134,6 +135,7 @@ class ParticipantData:
         # WebGazer event log
         # *dot_test_instructions.webm is the first video file.
         webMFile = glob.glob( self.directory + '/' + '*dot_test_instructions.webm' )
+        print('loadParticipantData',webMFile)
         # Split the video name into its pieces
         try:
             f = os.path.split( webMFile[0] )[1]
@@ -143,7 +145,6 @@ class ParticipantData:
 
         # Find the first part of the video filename, which is the timestamp as a string
         self.startTimestamp = int(f[0:f.find('_')])
-        print( self.directory )
         self.inputLogFile = self.directory + "/" + str(self.startTimestamp) + ".json"
 
         # Load WebGazer browser window parameters
@@ -251,15 +252,17 @@ def sendParticipantInfo( wsh, participant ):
 
 def newParticipant( wsh ):    
     global_variables.participantPos = global_variables.participantPos + 1
-
     # Check we're not at the last participant
-    if global_variables.participantPos >= len(global_variables.participantDirList):
+    if global_variables.participantPos >= len(global_variables.participantSelectedDirList):
         print( "All participants completed." )
         exit()
     else:
         # Load the participant data
-        print(global_variables.participantDirList)
-        global_variables.participant = ParticipantData( global_variables.participantDirList[global_variables.participantPos] )
-        global_variables.participant = ParticipantData('P_28')
+        global_variables.participant = ParticipantData( global_variables.participantSelectedDirList[global_variables.participantPos] )
         global_variables.participant.loadParticipantData()
         sendParticipantInfo( wsh, global_variables.participant )
+
+def showParticipants( wsh ):
+    parcel = ({ 'msgID': "5",
+                'participants': global_variables.participantDirList})
+    wsh.write_message( tornado.escape.json_encode( parcel ) )

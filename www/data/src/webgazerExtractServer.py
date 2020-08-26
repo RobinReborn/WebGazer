@@ -27,7 +27,7 @@ import numpy as np
 from videoProcessing import readImageRGBA,loadScreenCapVideo,writeScreenCapOutputFrames,openScreenCapOutVideo,\
     closeScreenCapOutVideo,sendVideoFrame,sendVideoEnd
 import global_variables
-from participant import ParticipantData,TobiiData,sendParticipantInfo,ParticipantVideo,newParticipant
+from participant import ParticipantData,TobiiData,sendParticipantInfo,ParticipantVideo,newParticipant,showParticipants
 
 # TODO
 # - Check Aaron's timestamps
@@ -173,7 +173,10 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
     def open(self):
 
         global_variables.participantPos = -1
-        newParticipant( self )
+        #send list of participants and videos to client
+        print(self,"in open")
+        showParticipants( self )
+        #newParticipant( self )
 
  
     def on_message(self, message):
@@ -331,7 +334,10 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
             else:
                 sendVideoFrame( self, pv.frameFilesList[pv.frameFilesPos], pv )
-
+        elif msg['msgID'] == '5':
+            global_variables.participantSelectedDirList = sorted(msg['participants'])
+            print(self,"msgid 5")
+            newParticipant(self)
 
     def on_close(self):
         pass
@@ -395,9 +401,9 @@ def main():
     logging.info('Listening on %s:%s' % (listen_address or '[::]' if ':' not in listen_address else '[%s]' % listen_address, listen_port))
     # [James]
     # Uncomment these lines to suppress normal webserver output
-    #logging.getLogger('tornado.access').disabled = True
-    #logging.getLogger('tornado.application').disabled = True
-    #logging.getLogger('tornado.general').disabled = True
+    logging.getLogger('tornado.access').disabled = True
+    logging.getLogger('tornado.application').disabled = True
+    logging.getLogger('tornado.general').disabled = True
 
     # Message
     print( "WebGazer ETRA2018 Dataset Extractor server started; please open http://localhost:8000/webgazerExtractClient.html" )

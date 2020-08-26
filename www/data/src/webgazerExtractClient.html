@@ -8,6 +8,7 @@
 </HEAD>
  <script src="webgazer.js"></script>
 <BODY LANG="en-US" LINK="#0000ff" DIR="LTR" onload="onLoad();">
+    <script src="webgazerExtractClient.js"></script>
     <div id="myMouse"></div>
     <div id="tobiiGP"></div>
     <div id="wgGP"></div>
@@ -24,7 +25,10 @@
     <p id="wgError"></p>
     <p id="procFPS"></p>
     </div>
-    <script src="webgazerExtractClient.js"></script>
+    <div id='participants'>
+        <button id='choose_participants' onClick="choose_participants()">choose_participants</button>
+    </div>
+    
 </BODY>
 
 </HTML>

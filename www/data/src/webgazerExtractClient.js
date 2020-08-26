@@ -25,7 +25,7 @@ var processTimePrev = 0;
 
 // WebSocket for sending image data
 var ws;
-// CLM tracker
+// facemesh tracker
 var fm;
 // TODO magic numbers
 var fmPosFeaturesSize = 468;
@@ -40,6 +40,8 @@ var participant_id = "";
 var total_participants = 64;
 var video_number = 1;
 var total_videos = 6;
+
+var participant_list = [];
 
 function toggleScreenCap()
 {
@@ -188,12 +190,43 @@ function onLoad()
                 sendMsg( JSON.stringify(send) );
                 video_number++;
             }
+            else if( obj.msgID == "5" ){
+                participant_list = obj.participants;
+                let participant_div = document.getElementById('participants');
+                for(var p=0;p<obj.participants.length;p++){
+                    let check_participant = document.createElement('input')
+                    
+                    check_participant.setAttribute("type","checkbox");
+                    check_participant.setAttribute("id",obj.participants[p]);
+                    check_participant.checked = true
+                    check_participant.addEventListener('change', e => {
+                        if(e.target.checked && !participant_list.includes(e.target.id )){
+                            participant_list.push(e.target.id);
+                        }
+                        else if(!e.target.checked && participant_list.includes(e.target.id )){
+                            const index = participant_list.indexOf(e.target.id);
+                            participant_list.splice(index,1)
+                        }
+                        console.log(e)
+                    })
+                    let label = document.createElement("label");
+                    label.setAttribute("for",obj.participants[p]);
+                    label.innerHTML = obj.participants[p];
+                    participant_div.appendChild(label); 
+                    participant_div.appendChild(check_participant)
+                }
+            }
         }
     };
 }
 
 async function sendMsg(msg) {
     ws.send(msg);
+}
+
+async function choose_participants(){
+    let send = { msgID: "5", participants: participant_list };
+    sendMsg( JSON.stringify(send) );
 }
 
 // Thanks to http://jsfiddle.net/d4rcuxw9/1/

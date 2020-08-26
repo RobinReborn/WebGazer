@@ -4,7 +4,7 @@ def init():
     global writeScreenCapVideo, useAaronCircles
     global wgCurrentX, wgCurrentY
     global pctFile
-    global participantPos, participantDirList
+    global participantPos, participantDirList, participantSelectedDirList
     global onlyWritingVideos
     # Options
     
@@ -20,6 +20,5 @@ def init():
 
 
     # Which participant are we on?
-    participantDirList = []
     participantPos = -1
     participant = []
