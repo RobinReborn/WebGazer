@@ -65,10 +65,6 @@ util.getEyeFeats = function(eyes,custom_resizeWidth,custom_resizeHeight) {
     } 
     var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
     var rightGray = this.grayscale(resizedRight.data, resizedRight.width, resizedRight.height);
-    // var l_min = this.diamondEyes(resizedLeft);
-    // var r_min = this.diamondEyes(resizedRight);
-    // var leftGray = this.grayscale(l_min, l_min.length, 1);
-    // var rightGray = this.grayscale(r_min, r_min.length, 1);
 
     var histLeft = [];
     this.equalizeHistogram(leftGray, 5, histLeft);

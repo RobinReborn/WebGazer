@@ -68,49 +68,7 @@ describe('webgazer function', async() => {
 		assert.equal(videoAvailable,true);
 		assert.equal(isReady,true);
 	});
-	it('mouse clicks and moves should be stored in regs', async()=>{
-		await page.mouse.click(500,600)
-		let regsClicksArray = await page.evaluate(async()=>{
-			return {x:await webgazer.getRegression()[0].screenXClicksArray.data[1],
-					y:await webgazer.getRegression()[0].screenYClicksArray.data[1]}
-		})
-		assert.equal(regsClicksArray.x,500)
-		assert.equal(regsClicksArray.y,600)
-
-		await page.mouse.move(50, 60);
-		let regsTrailArray = await page.evaluate(async()=>{
-			return {x:await webgazer.getRegression()[0].screenXTrailArray.data[0],
-					y:await webgazer.getRegression()[0].screenYTrailArray.data[0]}
-		})
-		assert.equal(regsTrailArray.x[0],50)
-		assert.equal(regsTrailArray.y[0],60)
-	})
-	it('should be able to store points', async()=>{
-		const points = await page.evaluate(async()=>{
-			await webgazer.storePoints(100, 200, 0)
-			return await webgazer.getStoredPoints() 
-		})
-		assert.equal(points[0][0],100)
-		assert.equal(points[1][0],200)
-	})
-	it('should return regression data', async()=> {
-		await page.evaluate(async() => {
-			document.getElementsByClassName('Calibration')[0].click()
-			
-		})
-		let regs = await page.evaluate(async()=>{
-			return await webgazer.getRegression()
-		})
-		assert.isNotNull(regs)
-	})
-	it('should make predictions', async()=>{
-		const prediction = await page.evaluate(async() => {
-			return await webgazer.getCurrentPrediction()
-		})
-		
-		console.log(prediction)
-		assert.isNotNull(prediction)
-	})
+	
 
 	//modifying visibility params
 	it('webgazerVideoFeed should display', async() => {
@@ -217,4 +175,6 @@ describe('webgazer function', async() => {
 	  	}
 	})
 	//checkEyesInValidationBox exists in code but the comment above says it's wrong and it returns nothing
+
+	
 })
