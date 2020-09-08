@@ -8097,7 +8097,7 @@ if (Object(environment["c" /* env */])().get('IS_BROWSER')) {
 var platform_node = __webpack_require__(62);
 
 // EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-core/dist/io/io_utils.js
-var io_utils = __webpack_require__(13);
+var io_utils = __webpack_require__(12);
 
 // CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-core/dist/io/router_registry.js
 /**
@@ -26410,6 +26410,1776 @@ function isIterable(obj) {
 
 /***/ }),
 /* 12 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* WEBPACK VAR INJECTION */(function(Buffer) {/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "f", function() { return encodeWeights; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "e", function() { return decodeWeights; });
+/* unused harmony export concatenateTypedArrays */
+/* unused harmony export stringByteLength */
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return arrayBufferToBase64String; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return base64StringToArrayBuffer; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "d", function() { return concatenateArrayBuffers; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "c", function() { return basename; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "g", function() { return getModelArtifactsInfoForJSON; });
+/* unused harmony export getFloat16Decoder */
+/* harmony import */ var _ops_complex__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(18);
+/* harmony import */ var _ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(8);
+/* harmony import */ var _util__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(1);
+/* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(34);
+/**
+ * @license
+ * Copyright 2018 Google LLC. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * =============================================================================
+ */
+
+
+
+
+/** Number of bytes reserved for the length of the string. (32bit integer). */
+const NUM_BYTES_STRING_LENGTH = 4;
+/**
+ * Encode a map from names to weight values as an ArrayBuffer, along with an
+ * `Array` of `WeightsManifestEntry` as specification of the encoded weights.
+ *
+ * This function does not perform sharding.
+ *
+ * This function is the reverse of `decodeWeights`.
+ *
+ * @param tensors A map ("dict") from names to tensors.
+ * @param group Group to which the weights belong (optional).
+ * @returns A `Promise` of
+ *   - A flat `ArrayBuffer` with all the binary values of the `Tensor`s
+ *     concatenated.
+ *   - An `Array` of `WeightManifestEntry`s, carrying information including
+ *     tensor names, `dtype`s and shapes.
+ * @throws Error: on unsupported tensor `dtype`.
+ */
+async function encodeWeights(tensors, group) {
+    // TODO(adarob, cais): Support quantization.
+    const specs = [];
+    const dataPromises = [];
+    const names = Array.isArray(tensors) ?
+        tensors.map(tensor => tensor.name) :
+        Object.keys(tensors);
+    for (let i = 0; i < names.length; ++i) {
+        const name = names[i];
+        const t = Array.isArray(tensors) ? tensors[i].tensor : tensors[name];
+        if (t.dtype !== 'float32' && t.dtype !== 'int32' && t.dtype !== 'bool' &&
+            t.dtype !== 'string' && t.dtype !== 'complex64') {
+            throw new Error(`Unsupported dtype in weight '${name}': ${t.dtype}`);
+        }
+        const spec = { name, shape: t.shape, dtype: t.dtype };
+        if (t.dtype === 'string') {
+            const utf8bytes = new Promise(async (resolve) => {
+                const vals = await t.bytes();
+                const totalNumBytes = vals.reduce((p, c) => p + c.length, 0) +
+                    NUM_BYTES_STRING_LENGTH * vals.length;
+                const bytes = new Uint8Array(totalNumBytes);
+                let offset = 0;
+                for (let i = 0; i < vals.length; i++) {
+                    const val = vals[i];
+                    const bytesOfLength = new Uint8Array(new Uint32Array([val.length]).buffer);
+                    bytes.set(bytesOfLength, offset);
+                    offset += NUM_BYTES_STRING_LENGTH;
+                    bytes.set(val, offset);
+                    offset += val.length;
+                }
+                resolve(bytes);
+            });
+            dataPromises.push(utf8bytes);
+        }
+        else {
+            dataPromises.push(t.data());
+        }
+        if (group != null) {
+            spec.group = group;
+        }
+        specs.push(spec);
+    }
+    const tensorValues = await Promise.all(dataPromises);
+    return { data: concatenateTypedArrays(tensorValues), specs };
+}
+/**
+ * Decode flat ArrayBuffer as weights.
+ *
+ * This function does not handle sharding.
+ *
+ * This function is the reverse of `encodeWeights`.
+ *
+ * @param buffer A flat ArrayBuffer carrying the binary values of the tensors
+ *   concatenated in the order specified in `specs`.
+ * @param specs Specifications of the names, dtypes and shapes of the tensors
+ *   whose value are encoded by `buffer`.
+ * @return A map from tensor name to tensor value, with the names corresponding
+ *   to names in `specs`.
+ * @throws Error, if any of the tensors has unsupported dtype.
+ */
+function decodeWeights(buffer, specs) {
+    // TODO(adarob, cais): Support quantization.
+    const out = {};
+    let float16Decode;
+    let offset = 0;
+    for (const spec of specs) {
+        const name = spec.name;
+        const dtype = spec.dtype;
+        const shape = spec.shape;
+        const size = Object(_util__WEBPACK_IMPORTED_MODULE_2__["sizeFromShape"])(shape);
+        let values;
+        if ('quantization' in spec) {
+            const quantization = spec.quantization;
+            if (quantization.dtype === 'uint8' || quantization.dtype === 'uint16') {
+                if (!('min' in quantization && 'scale' in quantization)) {
+                    throw new Error(`Weight ${spec.name} with quantization ${quantization.dtype} ` +
+                        `doesn't have corresponding metadata min and scale.`);
+                }
+            }
+            else if (quantization.dtype === 'float16') {
+                if (dtype !== 'float32') {
+                    throw new Error(`Weight ${spec.name} is quantized with ${quantization.dtype} ` +
+                        `which only supports weights of type float32 not ${dtype}.`);
+                }
+            }
+            else {
+                throw new Error(`Weight ${spec.name} has unknown ` +
+                    `quantization dtype ${quantization.dtype}. ` +
+                    `Supported quantization dtypes are: ` +
+                    `'uint8', 'uint16', and 'float16'.`);
+            }
+            const quantizationSizeFactor = _types__WEBPACK_IMPORTED_MODULE_3__[/* DTYPE_VALUE_SIZE_MAP */ "a"][quantization.dtype];
+            const byteBuffer = buffer.slice(offset, offset + size * quantizationSizeFactor);
+            const quantizedArray = (quantization.dtype === 'uint8') ?
+                new Uint8Array(byteBuffer) :
+                new Uint16Array(byteBuffer);
+            if (dtype === 'float32') {
+                if (quantization.dtype === 'uint8' || quantization.dtype === 'uint16') {
+                    values = new Float32Array(quantizedArray.length);
+                    for (let i = 0; i < quantizedArray.length; i++) {
+                        const v = quantizedArray[i];
+                        values[i] = v * quantization.scale + quantization.min;
+                    }
+                }
+                else if (quantization.dtype === 'float16') {
+                    if (float16Decode === undefined) {
+                        float16Decode = getFloat16Decoder();
+                    }
+                    values = float16Decode(quantizedArray);
+                }
+                else {
+                    throw new Error(`Unsupported quantization type ${quantization.dtype} ` +
+                        `for weight type float32.`);
+                }
+            }
+            else if (dtype === 'int32') {
+                if (quantization.dtype !== 'uint8' && quantization.dtype !== 'uint16') {
+                    throw new Error(`Unsupported quantization type ${quantization.dtype} ` +
+                        `for weight type int32.`);
+                }
+                values = new Int32Array(quantizedArray.length);
+                for (let i = 0; i < quantizedArray.length; i++) {
+                    const v = quantizedArray[i];
+                    values[i] = Math.round(v * quantization.scale + quantization.min);
+                }
+            }
+            else {
+                throw new Error(`Unsupported dtype in weight '${name}': ${dtype}`);
+            }
+            offset += size * quantizationSizeFactor;
+        }
+        else if (dtype === 'string') {
+            const size = Object(_util__WEBPACK_IMPORTED_MODULE_2__["sizeFromShape"])(spec.shape);
+            values = [];
+            for (let i = 0; i < size; i++) {
+                const byteLength = new Uint32Array(buffer.slice(offset, offset + NUM_BYTES_STRING_LENGTH))[0];
+                offset += NUM_BYTES_STRING_LENGTH;
+                const bytes = new Uint8Array(buffer.slice(offset, offset + byteLength));
+                values.push(bytes);
+                offset += byteLength;
+            }
+        }
+        else {
+            const dtypeFactor = _types__WEBPACK_IMPORTED_MODULE_3__[/* DTYPE_VALUE_SIZE_MAP */ "a"][dtype];
+            const byteBuffer = buffer.slice(offset, offset + size * dtypeFactor);
+            if (dtype === 'float32') {
+                values = new Float32Array(byteBuffer);
+            }
+            else if (dtype === 'int32') {
+                values = new Int32Array(byteBuffer);
+            }
+            else if (dtype === 'bool') {
+                values = new Uint8Array(byteBuffer);
+            }
+            else if (dtype === 'complex64') {
+                values = new Float32Array(byteBuffer);
+                const real = new Float32Array(values.length / 2);
+                const image = new Float32Array(values.length / 2);
+                for (let i = 0; i < real.length; i++) {
+                    real[i] = values[i * 2];
+                    image[i] = values[i * 2 + 1];
+                }
+                const realTensor = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(real, shape, 'float32');
+                const imageTensor = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(image, shape, 'float32');
+                out[name] = Object(_ops_complex__WEBPACK_IMPORTED_MODULE_0__[/* complex */ "a"])(realTensor, imageTensor);
+            }
+            else {
+                throw new Error(`Unsupported dtype in weight '${name}': ${dtype}`);
+            }
+            offset += size * dtypeFactor;
+        }
+        if (dtype !== 'complex64') {
+            out[name] = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(values, shape, dtype);
+        }
+    }
+    return out;
+}
+/**
+ * Concatenate TypedArrays into an ArrayBuffer.
+ */
+function concatenateTypedArrays(xs) {
+    // TODO(adarob, cais): Support quantization.
+    if (xs === null) {
+        throw new Error(`Invalid input value: ${JSON.stringify(xs)}`);
+    }
+    let totalByteLength = 0;
+    // `normalizedXs` is here for this reason: a `TypedArray`'s `buffer'
+    // can have a different byte length from that of the `TypedArray` itself,
+    // for example, when the `TypedArray` is created from an offset in an
+    // `ArrayBuffer`. `normliazedXs` holds `TypedArray`s whose `buffer`s match
+    // the `TypedArray` in byte length. If an element of `xs` does not show
+    // this property, a new `TypedArray` that satisfy this property will be
+    // constructed and pushed into `normalizedXs`.
+    const normalizedXs = [];
+    xs.forEach((x) => {
+        totalByteLength += x.byteLength;
+        // tslint:disable:no-any
+        normalizedXs.push(x.byteLength === x.buffer.byteLength ? x :
+            new x.constructor(x));
+        if (!(x instanceof Float32Array || x instanceof Int32Array ||
+            x instanceof Uint8Array)) {
+            throw new Error(`Unsupported TypedArray subtype: ${x.constructor.name}`);
+        }
+        // tslint:enable:no-any
+    });
+    const y = new Uint8Array(totalByteLength);
+    let offset = 0;
+    normalizedXs.forEach((x) => {
+        y.set(new Uint8Array(x.buffer), offset);
+        offset += x.byteLength;
+    });
+    return y.buffer;
+}
+// Use Buffer on Node.js instead of Blob/atob/btoa
+const useNodeBuffer = typeof Buffer !== 'undefined' &&
+    (typeof Blob === 'undefined' || typeof atob === 'undefined' ||
+        typeof btoa === 'undefined');
+/**
+ * Calculate the byte length of a JavaScript string.
+ *
+ * Note that a JavaScript string can contain wide characters, therefore the
+ * length of the string is not necessarily equal to the byte length.
+ *
+ * @param str Input string.
+ * @returns Byte length.
+ */
+function stringByteLength(str) {
+    if (useNodeBuffer) {
+        return Buffer.byteLength(str);
+    }
+    return new Blob([str]).size;
+}
+/**
+ * Encode an ArrayBuffer as a base64 encoded string.
+ *
+ * @param buffer `ArrayBuffer` to be converted.
+ * @returns A string that base64-encodes `buffer`.
+ */
+function arrayBufferToBase64String(buffer) {
+    if (useNodeBuffer) {
+        return Buffer.from(buffer).toString('base64');
+    }
+    const buf = new Uint8Array(buffer);
+    let s = '';
+    for (let i = 0, l = buf.length; i < l; i++) {
+        s += String.fromCharCode(buf[i]);
+    }
+    return btoa(s);
+}
+/**
+ * Decode a base64 string as an ArrayBuffer.
+ *
+ * @param str Base64 string.
+ * @returns Decoded `ArrayBuffer`.
+ */
+function base64StringToArrayBuffer(str) {
+    if (useNodeBuffer) {
+        const buf = Buffer.from(str, 'base64');
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    }
+    const s = atob(str);
+    const buffer = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; ++i) {
+        buffer.set([s.charCodeAt(i)], i);
+    }
+    return buffer.buffer;
+}
+/**
+ * Concatenate a number of ArrayBuffers into one.
+ *
+ * @param buffers A number of array buffers to concatenate.
+ * @returns Result of concatenating `buffers` in order.
+ */
+function concatenateArrayBuffers(buffers) {
+    if (buffers.length === 1) {
+        return buffers[0];
+    }
+    let totalByteLength = 0;
+    buffers.forEach((buffer) => {
+        totalByteLength += buffer.byteLength;
+    });
+    const temp = new Uint8Array(totalByteLength);
+    let offset = 0;
+    buffers.forEach((buffer) => {
+        temp.set(new Uint8Array(buffer), offset);
+        offset += buffer.byteLength;
+    });
+    return temp.buffer;
+}
+/**
+ * Get the basename of a path.
+ *
+ * Behaves in a way analogous to Linux's basename command.
+ *
+ * @param path
+ */
+function basename(path) {
+    const SEPARATOR = '/';
+    path = path.trim();
+    while (path.endsWith(SEPARATOR)) {
+        path = path.slice(0, path.length - 1);
+    }
+    const items = path.split(SEPARATOR);
+    return items[items.length - 1];
+}
+/**
+ * Populate ModelArtifactsInfo fields for a model with JSON topology.
+ * @param modelArtifacts
+ * @returns A ModelArtifactsInfo object.
+ */
+function getModelArtifactsInfoForJSON(modelArtifacts) {
+    if (modelArtifacts.modelTopology instanceof ArrayBuffer) {
+        throw new Error('Expected JSON model topology, received ArrayBuffer.');
+    }
+    return {
+        dateSaved: new Date(),
+        modelTopologyType: 'JSON',
+        modelTopologyBytes: modelArtifacts.modelTopology == null ?
+            0 :
+            stringByteLength(JSON.stringify(modelArtifacts.modelTopology)),
+        weightSpecsBytes: modelArtifacts.weightSpecs == null ?
+            0 :
+            stringByteLength(JSON.stringify(modelArtifacts.weightSpecs)),
+        weightDataBytes: modelArtifacts.weightData == null ?
+            0 :
+            modelArtifacts.weightData.byteLength,
+    };
+}
+/**
+ * Computes mantisa table for casting Float16 to Float32
+ * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+ *
+ * @returns Uint32Array, 2048 mantissa lookup values.
+ */
+function computeFloat16MantisaTable() {
+    const convertMantissa = (i) => {
+        let m = i << 13;
+        let e = 0;
+        while ((m & 0x00800000) === 0) {
+            e -= 0x00800000;
+            m <<= 1;
+        }
+        m &= ~0x00800000;
+        e += 0x38800000;
+        return m | e;
+    };
+    const mantisaTable = new Uint32Array(2048);
+    mantisaTable[0] = 0;
+    for (let i = 1; i < 1024; i++) {
+        mantisaTable[i] = convertMantissa(i);
+    }
+    for (let i = 1024; i < 2048; i++) {
+        mantisaTable[i] = 0x38000000 + ((i - 1024) << 13);
+    }
+    return mantisaTable;
+}
+/**
+ * Computes exponent table for casting Float16 to Float32
+ * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+ *
+ * @returns Uint32Array, 64 exponent lookup values.
+ */
+function computeFloat16ExponentTable() {
+    const exponentTable = new Uint32Array(64);
+    exponentTable[0] = 0;
+    exponentTable[31] = 0x47800000;
+    exponentTable[32] = 0x80000000;
+    exponentTable[63] = 0xc7800000;
+    for (let i = 1; i < 31; i++) {
+        exponentTable[i] = i << 23;
+    }
+    for (let i = 33; i < 63; i++) {
+        exponentTable[i] = 0x80000000 + ((i - 32) << 23);
+    }
+    return exponentTable;
+}
+/**
+ * Computes offset table for casting Float16 to Float32
+ * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+ *
+ * @returns Uint32Array, 6d offset values.
+ */
+function computeFloat16OffsetTable() {
+    const offsetTable = new Uint32Array(64);
+    for (let i = 0; i < 64; i++) {
+        offsetTable[i] = 1024;
+    }
+    offsetTable[0] = offsetTable[32] = 0;
+    return offsetTable;
+}
+/**
+ * Retrieve a Float16 decoder which will decode a ByteArray of Float16 values
+ * to a Float32Array.
+ *
+ * @returns Function (buffer: Uint16Array) => Float32Array which decodes
+ *          the Uint16Array of Float16 bytes to a Float32Array.
+ */
+function getFloat16Decoder() {
+    // Algorithm is based off of http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
+    // Cache lookup tables
+    const mantisaTable = computeFloat16MantisaTable();
+    const exponentTable = computeFloat16ExponentTable();
+    const offsetTable = computeFloat16OffsetTable();
+    return (quantizedArray) => {
+        const buffer = new ArrayBuffer(4 * quantizedArray.length);
+        const bufferUint32View = new Uint32Array(buffer);
+        for (let index = 0; index < quantizedArray.length; index++) {
+            const float16Bits = quantizedArray[index];
+            const float32Bits = mantisaTable[offsetTable[float16Bits >> 10] + (float16Bits & 0x3ff)] +
+                exponentTable[float16Bits >> 10];
+            bufferUint32View[index] = float32Bits;
+        }
+        return new Float32Array(buffer);
+    };
+}
+//# sourceMappingURL=io_utils.js.map
+/* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(39).Buffer))
+
+/***/ }),
+/* 13 */
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+
+// EXPORTS
+__webpack_require__.d(__webpack_exports__, "f", function() { return /* binding */ iteratorFromItems; });
+__webpack_require__.d(__webpack_exports__, "e", function() { return /* binding */ iteratorFromFunction; });
+__webpack_require__.d(__webpack_exports__, "d", function() { return /* binding */ iteratorFromConcatenated; });
+__webpack_require__.d(__webpack_exports__, "g", function() { return /* binding */ iteratorFromZipped; });
+__webpack_require__.d(__webpack_exports__, "a", function() { return /* binding */ lazy_iterator_LazyIterator; });
+__webpack_require__.d(__webpack_exports__, "b", function() { return /* binding */ lazy_iterator_OneToManyIterator; });
+__webpack_require__.d(__webpack_exports__, "c", function() { return /* binding */ ZipMismatchMode; });
+
+// UNUSED EXPORTS: iteratorFromIncrementing, iteratorFromConcatenatedFunction, ChainedIterator, PrefetchIterator, ShuffleIterator
+
+// EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-core/dist/index.js + 269 modules
+var dist = __webpack_require__(0);
+
+// EXTERNAL MODULE: ./node_modules/seedrandom/index.js
+var seedrandom = __webpack_require__(20);
+
+// EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/deep_map.js
+var deep_map = __webpack_require__(19);
+
+// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/deep_clone.js
+/**
+ * @license
+ * Copyright 2018 Google LLC. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * =============================================================================
+ */
+
+
+function deepClone(container) {
+    return Object(deep_map["b" /* deepMap */])(container, cloneIfTensor);
+}
+// tslint:disable-next-line: no-any
+function cloneIfTensor(item) {
+    if (item instanceof dist["Tensor"]) {
+        return ({ value: item.clone(), recurse: false });
+    }
+    else if (Object(deep_map["e" /* isIterable */])(item)) {
+        return { value: null, recurse: true };
+    }
+    else {
+        return { value: item, recurse: false };
+    }
+}
+//# sourceMappingURL=deep_clone.js.map
+// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/ring_buffer.js
+/**
+ * @license
+ * Copyright 2018 Google LLC. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * =============================================================================
+ */
+/**
+ * A ring buffer, providing O(1) FIFO, LIFO, and related operations.
+ */
+class RingBuffer {
+    /**
+     * Constructs a `RingBuffer`.
+     * @param capacity The number of items that the buffer can accomodate.
+     */
+    constructor(capacity) {
+        this.capacity = capacity;
+        // Note we store the indices in the range 0 <= index < 2*capacity.
+        // This allows us to distinguish the full from the empty case.
+        // See https://www.snellman.net/blog/archive/2016-12-13-ring-buffers/
+        this.begin = 0; // inclusive
+        this.end = 0; // exclusive
+        if (capacity == null) {
+            throw new RangeError('Can\'t create a ring buffer of unknown capacity.');
+        }
+        if (capacity < 1) {
+            throw new RangeError('Can\'t create ring buffer of capacity < 1.');
+        }
+        this.data = new Array(capacity);
+        this.doubledCapacity = 2 * capacity;
+    }
+    /**
+     * Map any index into the range 0 <= index < 2*capacity.
+     */
+    wrap(index) {
+        // don't trust % on negative numbers
+        while (index < 0) {
+            index += this.doubledCapacity;
+        }
+        return index % this.doubledCapacity;
+    }
+    get(index) {
+        if (index < 0) {
+            throw new RangeError('Can\'t get item at a negative index.');
+        }
+        return this.data[index % this.capacity];
+    }
+    set(index, value) {
+        if (index < 0) {
+            throw new RangeError('Can\'t set item at a negative index.');
+        }
+        this.data[index % this.capacity] = value;
+    }
+    /**
+     * Returns the current number of items in the buffer.
+     */
+    length() {
+        let length = this.end - this.begin;
+        if (length < 0) {
+            length = this.doubledCapacity + length;
+        }
+        return length;
+    }
+    /**
+     * Reports whether the buffer is full.
+     * @returns true if the number of items in the buffer equals its capacity, and
+     *   false otherwise.
+     */
+    isFull() {
+        return this.length() === this.capacity;
+    }
+    /**
+     * Reports whether the buffer is empty.
+     * @returns true if the number of items in the buffer equals zero, and
+     *   false otherwise.
+     */
+    isEmpty() {
+        return this.length() === 0;
+    }
+    /**
+     * Adds an item to the end of the buffer.
+     */
+    push(value) {
+        if (this.isFull()) {
+            throw new RangeError('Ring buffer is full.');
+        }
+        this.set(this.end, value);
+        this.end = this.wrap(this.end + 1);
+    }
+    /**
+     * Adds many items to the end of the buffer, in order.
+     */
+    pushAll(values) {
+        for (const value of values) {
+            this.push(value);
+        }
+    }
+    /**
+     * Removes and returns the last item in the buffer.
+     */
+    pop() {
+        if (this.isEmpty()) {
+            throw new RangeError('Ring buffer is empty.');
+        }
+        this.end = this.wrap(this.end - 1);
+        const result = this.get(this.end);
+        this.set(this.end, undefined);
+        return result;
+    }
+    /**
+     * Adds an item to the beginning of the buffer.
+     */
+    unshift(value) {
+        if (this.isFull()) {
+            throw new RangeError('Ring buffer is full.');
+        }
+        this.begin = this.wrap(this.begin - 1);
+        this.set(this.begin, value);
+    }
+    /**
+     * Removes and returns the first item in the buffer.
+     */
+    shift() {
+        if (this.isEmpty()) {
+            throw new RangeError('Ring buffer is empty.');
+        }
+        const result = this.get(this.begin);
+        this.set(this.begin, undefined);
+        this.begin = this.wrap(this.begin + 1);
+        return result;
+    }
+    /**
+     * Removes and returns a specific item in the buffer, and moves the last item
+     * to the vacated slot.  This is useful for implementing a shuffling stream.
+     * Note that this operation necessarily scrambles the original order.
+     *
+     * @param relativeIndex: the index of the item to remove, relative to the
+     *   first item in the buffer (e.g., hiding the ring nature of the underlying
+     *   storage).
+     */
+    shuffleExcise(relativeIndex) {
+        if (this.isEmpty()) {
+            throw new RangeError('Ring buffer is empty.');
+        }
+        const index = this.wrap(this.begin + relativeIndex);
+        const result = this.get(index);
+        this.set(index, this.pop());
+        return result;
+    }
+}
+//# sourceMappingURL=ring_buffer.js.map
+// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/growing_ring_buffer.js
+/**
+ * @license
+ * Copyright 2018 Google LLC. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * =============================================================================
+ */
+
+class growing_ring_buffer_GrowingRingBuffer extends RingBuffer {
+    /**
+     * Constructs a `GrowingRingBuffer`.
+     */
+    constructor() {
+        super(growing_ring_buffer_GrowingRingBuffer.INITIAL_CAPACITY);
+    }
+    isFull() {
+        return false;
+    }
+    push(value) {
+        if (super.isFull()) {
+            this.expand();
+        }
+        super.push(value);
+    }
+    unshift(value) {
+        if (super.isFull()) {
+            this.expand();
+        }
+        super.unshift(value);
+    }
+    /**
+     * Doubles the capacity of the buffer.
+     */
+    expand() {
+        const newCapacity = this.capacity * 2;
+        const newData = new Array(newCapacity);
+        const len = this.length();
+        // Rotate the buffer to start at index 0 again, since we can't just
+        // allocate more space at the end.
+        for (let i = 0; i < len; i++) {
+            newData[i] = this.get(this.wrap(this.begin + i));
+        }
+        this.data = newData;
+        this.capacity = newCapacity;
+        this.doubledCapacity = 2 * this.capacity;
+        this.begin = 0;
+        this.end = len;
+    }
+}
+growing_ring_buffer_GrowingRingBuffer.INITIAL_CAPACITY = 32;
+//# sourceMappingURL=growing_ring_buffer.js.map
+// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/iterators/lazy_iterator.js
+/**
+ * @license
+ * Copyright 2018 Google LLC. All Rights Reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * =============================================================================
+ */
+
+
+
+
+
+
+// Here we implement a simple asynchronous iterator.
+// This lets us avoid using either third-party stream libraries or
+// recent TypeScript language support requiring polyfills.
+/**
+ * Create a `LazyIterator` from an array of items.
+ */
+function iteratorFromItems(items) {
+    return new lazy_iterator_ArrayIterator(items);
+}
+/**
+ * Create a `LazyIterator` of incrementing integers.
+ */
+function iteratorFromIncrementing(start) {
+    let i = start;
+    return iteratorFromFunction(() => ({ value: i++, done: false }));
+}
+/**
+ * Create a `LazyIterator` from a function.
+ *
+ * ```js
+ * let i = -1;
+ * const func = () =>
+ *    ++i < 5 ? {value: i, done: false} : {value: null, done: true};
+ * const iter = tf.data.iteratorFromFunction(func);
+ * await iter.forEachAsync(e => console.log(e));
+ * ```
+ *
+ * @param func A function that produces data on each call.
+ */
+function iteratorFromFunction(func) {
+    return new FunctionCallIterator(func);
+}
+/**
+ * Create a `LazyIterator` by concatenating underlying streams, which are
+ * themselves provided as a stream.
+ *
+ * This can also be thought of as a "stream flatten" operation.
+ *
+ * @param baseIterators A stream of streams to be concatenated.
+ * @param baseErrorHandler An optional function that can intercept `Error`s
+ *   raised during a `next()` call on the base stream.  This function can decide
+ *   whether the error should be propagated, whether the error should be
+ *   ignored, or whether the base stream should be terminated.
+ */
+function iteratorFromConcatenated(baseIterators, baseErrorHandler) {
+    return new ChainedIterator(baseIterators, baseErrorHandler);
+}
+/**
+ * Create a `LazyIterator` by concatenating streams produced by calling a
+ * stream-generating function a given number of times.
+ *
+ * Since a `LazyIterator` is read-once, it cannot be repeated, but this
+ * function can be used to achieve a similar effect:
+ *
+ *   LazyIterator.ofConcatenatedFunction(() => new MyIterator(), 6);
+ *
+ * @param iteratorFunc: A function that produces a new stream on each call.
+ * @param count: The number of times to call the function.
+ * @param baseErrorHandler An optional function that can intercept `Error`s
+ *   raised during a `next()` call on the base stream.  This function can decide
+ *   whether the error should be propagated, whether the error should be
+ *   ignored, or whether the base stream should be terminated.
+ */
+function iteratorFromConcatenatedFunction(iteratorFunc, count, baseErrorHandler) {
+    return iteratorFromConcatenated(iteratorFromFunction(iteratorFunc).take(count), baseErrorHandler);
+}
+/**
+ * Create a `LazyIterator` by zipping together an array, dict, or nested
+ * structure of `LazyIterator`s (and perhaps additional constants).
+ *
+ * The underlying streams must provide elements in a consistent order such
+ * that they correspond.
+ *
+ * Typically, the underlying streams should have the same number of
+ * elements. If they do not, the behavior is determined by the
+ * `mismatchMode` argument.
+ *
+ * The nested structure of the `iterators` argument determines the
+ * structure of elements in the resulting iterator.
+ *
+ * @param iterators: An array or object containing LazyIterators at the
+ * leaves.
+ * @param mismatchMode: Determines what to do when one underlying iterator
+ * is exhausted before the others.  `ZipMismatchMode.FAIL` (the default)
+ * causes an error to be thrown in this case.  `ZipMismatchMode.SHORTEST`
+ * causes the zipped iterator to terminate with the furst underlying
+ * streams, so elements remaining on the longer streams are ignored.
+ * `ZipMismatchMode.LONGEST` causes the zipped stream to continue, filling
+ * in nulls for the exhausted streams, until all streams are exhausted.
+ */
+function iteratorFromZipped(iterators, mismatchMode = ZipMismatchMode.FAIL) {
+    return new lazy_iterator_ZipIterator(iterators, mismatchMode);
+}
+/**
+ * An asynchronous iterator, providing lazy access to a potentially
+ * unbounded stream of elements.
+ *
+ * Iterator can be obtained from a dataset:
+ * `const iter = await dataset.iterator();`
+ */
+class lazy_iterator_LazyIterator {
+    /**
+     * Collect all remaining elements of a bounded stream into an array.
+     * Obviously this will succeed only for small streams that fit in memory.
+     * Useful for testing.
+     *
+     * @returns A Promise for an array of stream elements, which will resolve
+     *   when the stream is exhausted.
+     */
+    async toArray() {
+        const result = [];
+        let x = await this.next();
+        while (!x.done) {
+            result.push(x.value);
+            x = await this.next();
+        }
+        return result;
+    }
+    /**
+     * Collect all elements of this dataset into an array with prefetching 100
+     * elements. This is useful for testing, because the prefetch changes the
+     * order in which the Promises are resolved along the processing pipeline.
+     * This may help expose bugs where results are dependent on the order of
+     * Promise resolution rather than on the logical order of the stream (i.e.,
+     * due to hidden mutable state).
+     *
+     * @returns A Promise for an array of stream elements, which will resolve
+     *   when the stream is exhausted.
+     */
+    async toArrayForTest() {
+        const stream = this.prefetch(100);
+        const result = [];
+        let x = await stream.next();
+        while (!x.done) {
+            result.push(x.value);
+            x = await stream.next();
+        }
+        return result;
+    }
+    /**
+     * Draw items from the stream until it is exhausted.
+     *
+     * This can be useful when the stream has side effects but no output.  In
+     * that case, calling this function guarantees that the stream will be
+     * fully processed.
+     */
+    async resolveFully() {
+        let x = await this.next();
+        while (!x.done) {
+            x = await this.next();
+        }
+    }
+    /**
+     * Draw items from the stream until it is exhausted, or a predicate fails.
+     *
+     * This can be useful when the stream has side effects but no output.  In
+     * that case, calling this function guarantees that the stream will be
+     * fully processed.
+     */
+    async resolveWhile(predicate) {
+        let x = await this.next();
+        let shouldContinue = predicate(x.value);
+        while ((!x.done) && shouldContinue) {
+            x = await this.next();
+            shouldContinue = predicate(x.value);
+        }
+    }
+    /**
+     * Handles errors thrown on this stream using a provided handler function.
+     *
+     * @param handler A function that handles any `Error` thrown during a `next()`
+     *   call and returns true if the stream should continue (dropping the failed
+     *   call) or false if the stream should quietly terminate.  If the handler
+     *   itself throws (or rethrows) an `Error`, that will be propagated.
+     *
+     * @returns A `LazyIterator` of elements passed through from upstream,
+     *   possibly filtering or terminating on upstream `next()` calls that
+     *   throw an `Error`.
+     */
+    handleErrors(handler) {
+        return new ErrorHandlingLazyIterator(this, handler);
+    }
+    // TODO(soergel): Implement reduce() etc.
+    /**
+     * Filters this stream according to `predicate`.
+     *
+     * @param predicate A function mapping a stream element to a boolean or a
+     * `Promise` for one.
+     *
+     * @returns A `LazyIterator` of elements for which the predicate was true.
+     */
+    filter(predicate) {
+        return new lazy_iterator_FilterIterator(this, predicate);
+    }
+    /**
+     * Maps this stream through a 1-to-1 transform.
+     *
+     * @param transform A function mapping a stream element to a transformed
+     *   element.
+     *
+     * @returns A `LazyIterator` of transformed elements.
+     */
+    map(transform) {
+        return new lazy_iterator_MapIterator(this, transform);
+    }
+    /**
+     * Maps this stream through an async 1-to-1 transform.
+     *
+     * @param transform A function mapping a stream element to a `Promise` for a
+     *   transformed stream element.
+     *
+     * @returns A `LazyIterator` of transformed elements.
+     */
+    mapAsync(transform) {
+        return new lazy_iterator_AsyncMapIterator(this, transform);
+    }
+    /**
+     * Maps this stream through a 1-to-1 transform, forcing serial execution.
+     *
+     * @param transform A function mapping a stream element to a transformed
+     *   element.
+     *
+     * @returns A `LazyIterator` of transformed elements.
+     */
+    serialMapAsync(transform) {
+        return new lazy_iterator_AsyncMapIterator(this, transform).serial();
+    }
+    /**
+     * Maps this stream through a 1-to-many transform.
+     *
+     * @param transform A function mapping a stream element to an array of
+     *   transformed elements.
+     *
+     * @returns A `DataStream` of transformed elements.
+     */
+    flatmap(transform) {
+        return new lazy_iterator_FlatmapIterator(this, transform);
+    }
+    /**
+     * Apply a function to every element of the stream.
+     *
+     * @param f A function to apply to each stream element.
+     */
+    async forEachAsync(f) {
+        return this.map(f).resolveFully();
+    }
+    /**
+     * Apply a function to every element of the stream, forcing serial execution.
+     *
+     * @param f A function to apply to each stream element.  Should return 'true'
+     *   to indicate that the stream should continue, or 'false' to cause it to
+     *   terminate.
+     */
+    async serialForEach(f) {
+        return this.serialMapAsync(f).resolveWhile(x => (x === true));
+    }
+    /**
+     * Groups elements into batches, represented as arrays of elements.
+     *
+     * We can think of the elements of this iterator as 'rows' (even if they are
+     * nested structures).  By the same token, consecutive values for a given
+     * key within the elements form a 'column'.  This matches the usual sense of
+     * 'row' and 'column' when processing tabular data (e.g., parsing a CSV).
+     *
+     * Thus, "Row-major" means that the resulting batch is simply a collection of
+     * rows: `[row1, row2, row3, ...]`.  This is contrast to the column-major
+     * form, which is needed for vectorized computation.
+     *
+     * @param batchSize The number of elements desired per batch.
+     * @param smallLastBatch Whether to emit the final batch when it has fewer
+     *   than batchSize elements. Default true.
+     * @returns A `LazyIterator` of batches of elements, represented as arrays
+     *   of the original element type.
+     */
+    rowMajorBatch(batchSize, smallLastBatch = true) {
+        return new RowMajorBatchIterator(this, batchSize, smallLastBatch);
+    }
+    /**
+     * Groups elements into batches, represented in column-major form.
+     *
+     * We can think of the elements of this iterator as 'rows' (even if they are
+     * nested structures).  By the same token, consecutive values for a given
+     * key within the elements form a 'column'.  This matches the usual sense of
+     * 'row' and 'column' when processing tabular data (e.g., parsing a CSV).
+     *
+     * Thus, "column-major" means that the resulting batch is a (potentially
+     * nested) structure representing the columns.  Each column entry, then,
+     * contains a collection of the values found in that column for a range of
+     * input elements.  This representation allows for vectorized computation, in
+     * contrast to the row-major form.
+     *
+     * The inputs should all have the same nested structure (i.e., of arrays and
+     * dicts).  The result is a single object with the same nested structure,
+     * where the leaves are arrays collecting the values of the inputs at that
+     * location (or, optionally, the result of a custom function applied to those
+     * arrays).
+     *
+     * @param batchSize The number of elements desired per batch.
+     * @param smallLastBatch Whether to emit the final batch when it has fewer
+     *   than batchSize elements. Default true.
+     * @param zipFn: (optional) A function that expects an array of elements at a
+     *   single node of the object tree, and returns a `DeepMapResult`.  The
+     *   `DeepMapResult` either provides a result value for that node (i.e.,
+     *   representing the subtree), or indicates that the node should be processed
+     *   recursively.  The default zipFn recurses as far as possible and places
+     *   arrays at the leaves.
+     * @returns A `LazyIterator` of batches of elements, represented as an object
+     *   with collections at the leaves.
+     */
+    columnMajorBatch(batchSize, smallLastBatch = true, 
+    // tslint:disable-next-line:no-any
+    zipFn = deep_map["f" /* zipToList */]) {
+        // First collect the desired number of input elements as a row-major batch.
+        const rowBatches = this.rowMajorBatch(batchSize, smallLastBatch);
+        // Now 'rotate' or 'pivot' the data, collecting all values from each column
+        // in the batch (i.e., for each key within the elements) into an array.
+        return rowBatches.map(x => Object(deep_map["d" /* deepZip */])(x, zipFn));
+    }
+    /**
+     * Concatenate this `LazyIterator` with another.
+     *
+     * @param iterator A `LazyIterator` to be concatenated onto this one.
+     * @param baseErrorHandler An optional function that can intercept `Error`s
+     *   raised during a `next()` call on the base stream.  This function can
+     *   decide whether the error should be propagated, whether the error should
+     *   be ignored, or whether the base stream should be terminated.
+     * @returns A `LazyIterator`.
+     */
+    concatenate(iterator, baseErrorHandler) {
+        return new ChainedIterator(iteratorFromItems([this, iterator]), baseErrorHandler);
+    }
+    /**
+     * Limits this stream to return at most `count` items.
+     *
+     * @param count The maximum number of items to provide from the stream. If
+     * a negative or undefined value is given, the entire stream is returned
+     *   unaltered.
+     */
+    take(count) {
+        if (count < 0 || count == null) {
+            return this;
+        }
+        return new TakeIterator(this, count);
+    }
+    /**
+     * Skips the first `count` items in this stream.
+     *
+     * @param count The number of items to skip.  If a negative or undefined
+     * value is given, the entire stream is returned unaltered.
+     */
+    skip(count) {
+        if (count < 0 || count == null) {
+            return this;
+        }
+        return new lazy_iterator_SkipIterator(this, count);
+    }
+    /**
+     * Prefetch the first `bufferSize` items in this stream.
+     *
+     * Note this prefetches Promises, but makes no guarantees about when those
+     * Promises resolve.
+     *
+     * @param bufferSize: An integer specifying the number of elements to be
+     *   prefetched.
+     */
+    prefetch(bufferSize) {
+        return new lazy_iterator_PrefetchIterator(this, bufferSize);
+    }
+    // TODO(soergel): deep sharded shuffle, where supported
+    /**
+     * Randomly shuffles the elements of this stream.
+     *
+     * @param bufferSize: An integer specifying the number of elements from
+     * this stream from which the new stream will sample.
+     * @param seed: (Optional.) An integer specifying the random seed that
+     * will be used to create the distribution.
+     */
+    shuffle(windowSize, seed) {
+        return new lazy_iterator_ShuffleIterator(this, windowSize, seed);
+    }
+    /**
+     * Force an iterator to execute serially: each next() call will await the
+     * prior one, so that they cannot execute concurrently.
+     */
+    serial() {
+        return new SerialIterator(this);
+    }
+}
+// ============================================================================
+// The following private classes serve to implement the chainable methods
+// on LazyIterator.  Unfortunately they can't be placed in separate files,
+// due to resulting trouble with circular imports.
+// ============================================================================
+// Iterators that just extend LazyIterator directly
+// ============================================================================
+class lazy_iterator_ArrayIterator extends lazy_iterator_LazyIterator {
+    constructor(items) {
+        super();
+        this.items = items;
+        this.trav = 0;
+    }
+    summary() {
+        return `Array of ${this.items.length} items`;
+    }
+    async next() {
+        if (this.trav >= this.items.length) {
+            return { value: null, done: true };
+        }
+        const item = this.items[this.trav];
+        this.trav++;
+        return { value: deepClone(item), done: false };
+    }
+}
+class FunctionCallIterator extends lazy_iterator_LazyIterator {
+    constructor(nextFn) {
+        super();
+        this.nextFn = nextFn;
+    }
+    summary() {
+        return `Function call`;
+    }
+    async next() {
+        try {
+            return this.nextFn();
+        }
+        catch (e) {
+            // Modify the error message but leave the stack trace intact
+            e.message =
+                `Error thrown while iterating through a dataset: ${e.message}`;
+            throw e;
+        }
+    }
+}
+class SerialIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream) {
+        super();
+        this.upstream = upstream;
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Serial`;
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        return this.upstream.next();
+    }
+}
+class lazy_iterator_SkipIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, maxCount) {
+        super();
+        this.upstream = upstream;
+        this.maxCount = maxCount;
+        // Local state that should not be clobbered by out-of-order execution.
+        this.count = 0;
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Skip`;
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        // TODO(soergel): consider tradeoffs of reading in parallel, eg.
+        // collecting next() promises in an Array and then waiting for
+        // Promise.all() of those. Benefit: pseudo-parallel execution.  Drawback:
+        // maybe delayed GC.
+        while (this.count++ < this.maxCount) {
+            const skipped = await this.upstream.next();
+            // short-circuit if upstream is already empty
+            if (skipped.done) {
+                return skipped;
+            }
+            dist["dispose"](skipped.value);
+        }
+        return this.upstream.next();
+    }
+}
+class TakeIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, maxCount) {
+        super();
+        this.upstream = upstream;
+        this.maxCount = maxCount;
+        this.count = 0;
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Take`;
+    }
+    async next() {
+        if (this.count++ >= this.maxCount) {
+            return { value: null, done: true };
+        }
+        return this.upstream.next();
+    }
+}
+// Note this batch just groups items into row-wise element arrays.
+// Rotating these to a column-wise representation happens only at the dataset
+// level.
+class RowMajorBatchIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, batchSize, enableSmallLastBatch = true) {
+        super();
+        this.upstream = upstream;
+        this.batchSize = batchSize;
+        this.enableSmallLastBatch = enableSmallLastBatch;
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    summary() {
+        return `${this.upstream.summary()} -> RowMajorBatch`;
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        const batch = [];
+        while (batch.length < this.batchSize) {
+            const item = await this.upstream.next();
+            if (item.done) {
+                if (this.enableSmallLastBatch && batch.length > 0) {
+                    return { value: batch, done: false };
+                }
+                return { value: null, done: true };
+            }
+            batch.push(item.value);
+        }
+        return { value: batch, done: false };
+    }
+}
+class lazy_iterator_FilterIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, predicate) {
+        super();
+        this.upstream = upstream;
+        this.predicate = predicate;
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Filter`;
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        while (true) {
+            const item = await this.upstream.next();
+            if (item.done || this.predicate(item.value)) {
+                return item;
+            }
+            dist["dispose"](item.value);
+        }
+    }
+}
+class lazy_iterator_MapIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, transform) {
+        super();
+        this.upstream = upstream;
+        this.transform = transform;
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Map`;
+    }
+    async next() {
+        const item = await this.upstream.next();
+        if (item.done) {
+            return { value: null, done: true };
+        }
+        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
+        // Careful: the transform may mutate the item in place.
+        // That's why we have to remember the input Tensors above, and then
+        // below dispose only those that were not passed through to the output.
+        // Note too that the transform function is responsible for tidying
+        // any intermediate Tensors.  Here we are concerned only about the
+        // inputs.
+        const mapped = this.transform(item.value);
+        const outputTensors = dist["tensor_util"].getTensorsInContainer(mapped);
+        // TODO(soergel) faster intersection
+        // TODO(soergel) move to tf.disposeExcept(in, out)?
+        for (const t of inputTensors) {
+            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
+                t.dispose();
+            }
+        }
+        return { value: mapped, done: false };
+    }
+}
+class ErrorHandlingLazyIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, handler) {
+        super();
+        this.upstream = upstream;
+        this.handler = handler;
+        this.count = 0;
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    summary() {
+        return `${this.upstream.summary()} -> handleErrors`;
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        while (true) {
+            try {
+                return await this.upstream.next();
+            }
+            catch (e) {
+                if (!this.handler(e)) {
+                    return { value: null, done: true };
+                }
+                // If the handler returns true, loop and fetch the next upstream item.
+                // If the upstream iterator throws an endless stream of errors, and if
+                // the handler says to ignore them, then we loop forever here.  That is
+                // the correct behavior-- it's up to the handler to decide when to stop.
+            }
+        }
+    }
+}
+class lazy_iterator_AsyncMapIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, transform) {
+        super();
+        this.upstream = upstream;
+        this.transform = transform;
+    }
+    summary() {
+        return `${this.upstream.summary()} -> AsyncMap`;
+    }
+    async next() {
+        const item = await this.upstream.next();
+        if (item.done) {
+            return { value: null, done: true };
+        }
+        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
+        // Careful: the transform may mutate the item in place.
+        // That's why we have to remember the input Tensors above, and then
+        // below dispose only those that were not passed through to the output.
+        // Note too that the transform function is responsible for tidying
+        // any intermediate Tensors.  Here we are concerned only about the
+        // inputs.
+        const mapped = await this.transform(item.value);
+        const outputTensors = dist["tensor_util"].getTensorsInContainer(mapped);
+        // TODO(soergel) faster intersection
+        // TODO(soergel) move to tf.disposeExcept(in, out)?
+        for (const t of inputTensors) {
+            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
+                t.dispose();
+            }
+        }
+        return { value: mapped, done: false };
+    }
+}
+// Iterators that maintain a queue of pending items
+// ============================================================================
+/**
+ * A base class for transforming streams that operate by maintaining an
+ * output queue of elements that are ready to return via next().  This is
+ * commonly required when the transformation is 1-to-many:  A call to next()
+ * may trigger a call to the underlying stream, which will produce many
+ * mapped elements of this stream-- of which we need to return only one, so
+ * we have to queue the rest.
+ */
+class lazy_iterator_OneToManyIterator extends lazy_iterator_LazyIterator {
+    constructor() {
+        super();
+        this.outputQueue = new growing_ring_buffer_GrowingRingBuffer();
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    async serialNext() {
+        // Fetch so that the queue contains at least one item if possible.
+        // If the upstream source is exhausted, AND there are no items left in
+        // the output queue, then this stream is also exhausted.
+        while (this.outputQueue.length() === 0) {
+            // TODO(soergel): consider parallel reads.
+            if (!await this.pump()) {
+                return { value: null, done: true };
+            }
+        }
+        return { value: this.outputQueue.shift(), done: false };
+    }
+}
+class lazy_iterator_FlatmapIterator extends lazy_iterator_OneToManyIterator {
+    constructor(upstream, transform) {
+        super();
+        this.upstream = upstream;
+        this.transform = transform;
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Flatmap`;
+    }
+    async pump() {
+        const item = await this.upstream.next();
+        if (item.done) {
+            return false;
+        }
+        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
+        // Careful: the transform may mutate the item in place.
+        // that's why we have to remember the input Tensors above, and then
+        // below dispose only those that were not passed through to the output.
+        // Note too that the transform function is responsible for tidying any
+        // intermediate Tensors.  Here we are concerned only about the inputs.
+        const mappedArray = this.transform(item.value);
+        const outputTensors = dist["tensor_util"].getTensorsInContainer(mappedArray);
+        this.outputQueue.pushAll(mappedArray);
+        // TODO(soergel) faster intersection, and deduplicate outputTensors
+        // TODO(soergel) move to tf.disposeExcept(in, out)?
+        for (const t of inputTensors) {
+            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
+                t.dispose();
+            }
+        }
+        return true;
+    }
+}
+/**
+ * Provides a `LazyIterator` that concatenates a stream of underlying
+ * streams.
+ *
+ * Doing this in a concurrency-safe way requires some trickery.  In
+ * particular, we want this stream to return the elements from the
+ * underlying streams in the correct order according to when next() was
+ * called, even if the resulting Promises resolve in a different order.
+ */
+class ChainedIterator extends lazy_iterator_LazyIterator {
+    constructor(iterators, baseErrorHandler) {
+        super();
+        this.baseErrorHandler = baseErrorHandler;
+        // Strict Promise execution order:
+        // a next() call may not even begin until the previous one completes.
+        this.lastRead = null;
+        // Local state that should not be clobbered by out-of-order execution.
+        this.iterator = null;
+        this.moreIterators = iterators;
+    }
+    summary() {
+        const upstreamSummaries = 'TODO: fill in upstream of chained summaries';
+        return `${upstreamSummaries} -> Chained`;
+    }
+    async next() {
+        this.lastRead = this.readFromChain(this.lastRead);
+        return this.lastRead;
+    }
+    async readFromChain(lastRead) {
+        // Must await on the previous read since the previous read may have advanced
+        // the stream of streams, from which we need to read.
+        // This is unfortunate since we can't parallelize reads. Which means
+        // prefetching of chained streams is a no-op.
+        // One solution is to prefetch immediately upstream of this.
+        await lastRead;
+        if (this.iterator == null) {
+            const iteratorResult = await this.moreIterators.next();
+            if (iteratorResult.done) {
+                // No more streams to stream from.
+                return { value: null, done: true };
+            }
+            this.iterator = iteratorResult.value;
+            if (this.baseErrorHandler != null) {
+                this.iterator = this.iterator.handleErrors(this.baseErrorHandler);
+            }
+        }
+        const itemResult = await this.iterator.next();
+        if (itemResult.done) {
+            this.iterator = null;
+            return this.readFromChain(lastRead);
+        }
+        return itemResult;
+    }
+}
+var ZipMismatchMode;
+(function (ZipMismatchMode) {
+    ZipMismatchMode[ZipMismatchMode["FAIL"] = 0] = "FAIL";
+    ZipMismatchMode[ZipMismatchMode["SHORTEST"] = 1] = "SHORTEST";
+    ZipMismatchMode[ZipMismatchMode["LONGEST"] = 2] = "LONGEST"; // use nulls for exhausted streams; use up the longest stream.
+})(ZipMismatchMode || (ZipMismatchMode = {}));
+/**
+ * Provides a `LazyIterator` that zips together an array, dict, or nested
+ * structure of `LazyIterator`s (and perhaps additional constants).
+ *
+ * The underlying streams must provide elements in a consistent order such
+ * that they correspond.
+ *
+ * Typically, the underlying streams should have the same number of
+ * elements. If they do not, the behavior is determined by the
+ * `mismatchMode` argument.
+ *
+ * The nested structure of the `iterators` argument determines the
+ * structure of elements in the resulting iterator.
+ *
+ * Doing this in a concurrency-safe way requires some trickery.  In
+ * particular, we want this stream to return the elements from the
+ * underlying streams in the correct order according to when next() was
+ * called, even if the resulting Promises resolve in a different order.
+ *
+ * @param iterators: An array or object containing LazyIterators at the
+ * leaves.
+ * @param mismatchMode: Determines what to do when one underlying iterator
+ * is exhausted before the others.  `ZipMismatchMode.FAIL` (the default)
+ * causes an error to be thrown in this case.  `ZipMismatchMode.SHORTEST`
+ * causes the zipped iterator to terminate with the furst underlying
+ * streams, so elements remaining on the longer streams are ignored.
+ * `ZipMismatchMode.LONGEST` causes the zipped stream to continue, filling
+ * in nulls for the exhausted streams, until all streams are exhausted.
+ */
+class lazy_iterator_ZipIterator extends lazy_iterator_LazyIterator {
+    constructor(iterators, mismatchMode = ZipMismatchMode.FAIL) {
+        super();
+        this.iterators = iterators;
+        this.mismatchMode = mismatchMode;
+        this.count = 0;
+        this.currentPromise = null;
+    }
+    summary() {
+        const upstreamSummaries = 'TODO: fill in upstream of zip summaries';
+        return `{${upstreamSummaries}} -> Zip`;
+    }
+    async nextState(afterState) {
+        // This chaining ensures that the underlying next() are not even called
+        // before the previous ones have resolved.
+        await afterState;
+        // Collect underlying iterator "done" signals as a side effect in
+        // getNext()
+        let numIterators = 0;
+        let iteratorsDone = 0;
+        function getNext(container) {
+            if (container instanceof lazy_iterator_LazyIterator) {
+                const result = container.next();
+                return {
+                    value: result.then(x => {
+                        numIterators++;
+                        if (x.done) {
+                            iteratorsDone++;
+                        }
+                        return x.value;
+                    }),
+                    recurse: false
+                };
+            }
+            else {
+                return { value: null, recurse: true };
+            }
+        }
+        const mapped = await Object(deep_map["c" /* deepMapAndAwaitAll */])(this.iterators, getNext);
+        if (numIterators === iteratorsDone) {
+            // The streams have all ended.
+            return { value: null, done: true };
+        }
+        if (iteratorsDone > 0) {
+            switch (this.mismatchMode) {
+                case ZipMismatchMode.FAIL:
+                    throw new Error('Zipped streams should have the same length. ' +
+                        `Mismatched at element ${this.count}.`);
+                case ZipMismatchMode.SHORTEST:
+                    return { value: null, done: true };
+                case ZipMismatchMode.LONGEST:
+                default:
+                // Continue.  The exhausted streams already produced value: null.
+            }
+        }
+        this.count++;
+        return { value: mapped, done: false };
+    }
+    async next() {
+        this.currentPromise = this.nextState(this.currentPromise);
+        return this.currentPromise;
+    }
+}
+// Iterators that maintain a ring buffer of pending promises
+// ============================================================================
+/**
+ * A stream that prefetches a given number of items from an upstream source,
+ * returning them in FIFO order.
+ *
+ * Note this prefetches Promises, but makes no guarantees about when those
+ * Promises resolve.
+ */
+class lazy_iterator_PrefetchIterator extends lazy_iterator_LazyIterator {
+    constructor(upstream, bufferSize) {
+        super();
+        this.upstream = upstream;
+        this.bufferSize = bufferSize;
+        this.buffer = new RingBuffer(bufferSize);
+    }
+    summary() {
+        return `${this.upstream.summary()} -> Prefetch`;
+    }
+    /**
+     * Refill the prefetch buffer.  Returns only after the buffer is full, or
+     * the upstream source is exhausted.
+     */
+    refill() {
+        while (!this.buffer.isFull()) {
+            const v = this.upstream.next();
+            this.buffer.push(v);
+        }
+    }
+    next() {
+        this.refill();
+        // This shift will never throw an error because the buffer is always
+        // full after a refill. If the stream is exhausted, the buffer will be
+        // full of Promises that will resolve to the end-of-stream signal.
+        return this.buffer.shift();
+    }
+}
+/**
+ * A stream that performs a sliding-window random shuffle on an upstream
+ * source. This is like a `PrefetchIterator` except that the items are
+ * returned in randomized order.  Mixing naturally improves as the buffer
+ * size increases.
+ */
+class lazy_iterator_ShuffleIterator extends lazy_iterator_PrefetchIterator {
+    constructor(upstream, windowSize, seed) {
+        super(upstream, windowSize);
+        this.upstream = upstream;
+        this.windowSize = windowSize;
+        // Local state that should not be clobbered by out-of-order execution.
+        this.upstreamExhausted = false;
+        this.random = seedrandom["alea"](seed || dist["util"].now().toString());
+        this.lastRead = Promise.resolve({ value: null, done: false });
+    }
+    async next() {
+        // This sets this.lastRead to a new Promise right away, as opposed to
+        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
+        // would not work because this.nextRead would be updated only after the
+        // promise resolves.
+        this.lastRead = this.lastRead.then(() => this.serialNext());
+        return this.lastRead;
+    }
+    randomInt(max) {
+        return Math.floor(this.random() * max);
+    }
+    chooseIndex() {
+        return this.randomInt(this.buffer.length());
+    }
+    async serialNext() {
+        // TODO(soergel): consider performance
+        if (!this.upstreamExhausted) {
+            this.refill();
+        }
+        while (!this.buffer.isEmpty()) {
+            const chosenIndex = this.chooseIndex();
+            const result = await this.buffer.shuffleExcise(chosenIndex);
+            if (result.done) {
+                this.upstreamExhausted = true;
+            }
+            else {
+                this.refill();
+                return result;
+            }
+        }
+        return { value: null, done: true };
+    }
+}
+//# sourceMappingURL=lazy_iterator.js.map
+
+/***/ }),
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -30839,1776 +32609,6 @@ numeric.svd= function svd(A) {
 
 
 /* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(27)))
-
-/***/ }),
-/* 13 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* WEBPACK VAR INJECTION */(function(Buffer) {/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "f", function() { return encodeWeights; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "e", function() { return decodeWeights; });
-/* unused harmony export concatenateTypedArrays */
-/* unused harmony export stringByteLength */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return arrayBufferToBase64String; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return base64StringToArrayBuffer; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "d", function() { return concatenateArrayBuffers; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "c", function() { return basename; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "g", function() { return getModelArtifactsInfoForJSON; });
-/* unused harmony export getFloat16Decoder */
-/* harmony import */ var _ops_complex__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(18);
-/* harmony import */ var _ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(8);
-/* harmony import */ var _util__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(1);
-/* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(34);
-/**
- * @license
- * Copyright 2018 Google LLC. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- * =============================================================================
- */
-
-
-
-
-/** Number of bytes reserved for the length of the string. (32bit integer). */
-const NUM_BYTES_STRING_LENGTH = 4;
-/**
- * Encode a map from names to weight values as an ArrayBuffer, along with an
- * `Array` of `WeightsManifestEntry` as specification of the encoded weights.
- *
- * This function does not perform sharding.
- *
- * This function is the reverse of `decodeWeights`.
- *
- * @param tensors A map ("dict") from names to tensors.
- * @param group Group to which the weights belong (optional).
- * @returns A `Promise` of
- *   - A flat `ArrayBuffer` with all the binary values of the `Tensor`s
- *     concatenated.
- *   - An `Array` of `WeightManifestEntry`s, carrying information including
- *     tensor names, `dtype`s and shapes.
- * @throws Error: on unsupported tensor `dtype`.
- */
-async function encodeWeights(tensors, group) {
-    // TODO(adarob, cais): Support quantization.
-    const specs = [];
-    const dataPromises = [];
-    const names = Array.isArray(tensors) ?
-        tensors.map(tensor => tensor.name) :
-        Object.keys(tensors);
-    for (let i = 0; i < names.length; ++i) {
-        const name = names[i];
-        const t = Array.isArray(tensors) ? tensors[i].tensor : tensors[name];
-        if (t.dtype !== 'float32' && t.dtype !== 'int32' && t.dtype !== 'bool' &&
-            t.dtype !== 'string' && t.dtype !== 'complex64') {
-            throw new Error(`Unsupported dtype in weight '${name}': ${t.dtype}`);
-        }
-        const spec = { name, shape: t.shape, dtype: t.dtype };
-        if (t.dtype === 'string') {
-            const utf8bytes = new Promise(async (resolve) => {
-                const vals = await t.bytes();
-                const totalNumBytes = vals.reduce((p, c) => p + c.length, 0) +
-                    NUM_BYTES_STRING_LENGTH * vals.length;
-                const bytes = new Uint8Array(totalNumBytes);
-                let offset = 0;
-                for (let i = 0; i < vals.length; i++) {
-                    const val = vals[i];
-                    const bytesOfLength = new Uint8Array(new Uint32Array([val.length]).buffer);
-                    bytes.set(bytesOfLength, offset);
-                    offset += NUM_BYTES_STRING_LENGTH;
-                    bytes.set(val, offset);
-                    offset += val.length;
-                }
-                resolve(bytes);
-            });
-            dataPromises.push(utf8bytes);
-        }
-        else {
-            dataPromises.push(t.data());
-        }
-        if (group != null) {
-            spec.group = group;
-        }
-        specs.push(spec);
-    }
-    const tensorValues = await Promise.all(dataPromises);
-    return { data: concatenateTypedArrays(tensorValues), specs };
-}
-/**
- * Decode flat ArrayBuffer as weights.
- *
- * This function does not handle sharding.
- *
- * This function is the reverse of `encodeWeights`.
- *
- * @param buffer A flat ArrayBuffer carrying the binary values of the tensors
- *   concatenated in the order specified in `specs`.
- * @param specs Specifications of the names, dtypes and shapes of the tensors
- *   whose value are encoded by `buffer`.
- * @return A map from tensor name to tensor value, with the names corresponding
- *   to names in `specs`.
- * @throws Error, if any of the tensors has unsupported dtype.
- */
-function decodeWeights(buffer, specs) {
-    // TODO(adarob, cais): Support quantization.
-    const out = {};
-    let float16Decode;
-    let offset = 0;
-    for (const spec of specs) {
-        const name = spec.name;
-        const dtype = spec.dtype;
-        const shape = spec.shape;
-        const size = Object(_util__WEBPACK_IMPORTED_MODULE_2__["sizeFromShape"])(shape);
-        let values;
-        if ('quantization' in spec) {
-            const quantization = spec.quantization;
-            if (quantization.dtype === 'uint8' || quantization.dtype === 'uint16') {
-                if (!('min' in quantization && 'scale' in quantization)) {
-                    throw new Error(`Weight ${spec.name} with quantization ${quantization.dtype} ` +
-                        `doesn't have corresponding metadata min and scale.`);
-                }
-            }
-            else if (quantization.dtype === 'float16') {
-                if (dtype !== 'float32') {
-                    throw new Error(`Weight ${spec.name} is quantized with ${quantization.dtype} ` +
-                        `which only supports weights of type float32 not ${dtype}.`);
-                }
-            }
-            else {
-                throw new Error(`Weight ${spec.name} has unknown ` +
-                    `quantization dtype ${quantization.dtype}. ` +
-                    `Supported quantization dtypes are: ` +
-                    `'uint8', 'uint16', and 'float16'.`);
-            }
-            const quantizationSizeFactor = _types__WEBPACK_IMPORTED_MODULE_3__[/* DTYPE_VALUE_SIZE_MAP */ "a"][quantization.dtype];
-            const byteBuffer = buffer.slice(offset, offset + size * quantizationSizeFactor);
-            const quantizedArray = (quantization.dtype === 'uint8') ?
-                new Uint8Array(byteBuffer) :
-                new Uint16Array(byteBuffer);
-            if (dtype === 'float32') {
-                if (quantization.dtype === 'uint8' || quantization.dtype === 'uint16') {
-                    values = new Float32Array(quantizedArray.length);
-                    for (let i = 0; i < quantizedArray.length; i++) {
-                        const v = quantizedArray[i];
-                        values[i] = v * quantization.scale + quantization.min;
-                    }
-                }
-                else if (quantization.dtype === 'float16') {
-                    if (float16Decode === undefined) {
-                        float16Decode = getFloat16Decoder();
-                    }
-                    values = float16Decode(quantizedArray);
-                }
-                else {
-                    throw new Error(`Unsupported quantization type ${quantization.dtype} ` +
-                        `for weight type float32.`);
-                }
-            }
-            else if (dtype === 'int32') {
-                if (quantization.dtype !== 'uint8' && quantization.dtype !== 'uint16') {
-                    throw new Error(`Unsupported quantization type ${quantization.dtype} ` +
-                        `for weight type int32.`);
-                }
-                values = new Int32Array(quantizedArray.length);
-                for (let i = 0; i < quantizedArray.length; i++) {
-                    const v = quantizedArray[i];
-                    values[i] = Math.round(v * quantization.scale + quantization.min);
-                }
-            }
-            else {
-                throw new Error(`Unsupported dtype in weight '${name}': ${dtype}`);
-            }
-            offset += size * quantizationSizeFactor;
-        }
-        else if (dtype === 'string') {
-            const size = Object(_util__WEBPACK_IMPORTED_MODULE_2__["sizeFromShape"])(spec.shape);
-            values = [];
-            for (let i = 0; i < size; i++) {
-                const byteLength = new Uint32Array(buffer.slice(offset, offset + NUM_BYTES_STRING_LENGTH))[0];
-                offset += NUM_BYTES_STRING_LENGTH;
-                const bytes = new Uint8Array(buffer.slice(offset, offset + byteLength));
-                values.push(bytes);
-                offset += byteLength;
-            }
-        }
-        else {
-            const dtypeFactor = _types__WEBPACK_IMPORTED_MODULE_3__[/* DTYPE_VALUE_SIZE_MAP */ "a"][dtype];
-            const byteBuffer = buffer.slice(offset, offset + size * dtypeFactor);
-            if (dtype === 'float32') {
-                values = new Float32Array(byteBuffer);
-            }
-            else if (dtype === 'int32') {
-                values = new Int32Array(byteBuffer);
-            }
-            else if (dtype === 'bool') {
-                values = new Uint8Array(byteBuffer);
-            }
-            else if (dtype === 'complex64') {
-                values = new Float32Array(byteBuffer);
-                const real = new Float32Array(values.length / 2);
-                const image = new Float32Array(values.length / 2);
-                for (let i = 0; i < real.length; i++) {
-                    real[i] = values[i * 2];
-                    image[i] = values[i * 2 + 1];
-                }
-                const realTensor = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(real, shape, 'float32');
-                const imageTensor = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(image, shape, 'float32');
-                out[name] = Object(_ops_complex__WEBPACK_IMPORTED_MODULE_0__[/* complex */ "a"])(realTensor, imageTensor);
-            }
-            else {
-                throw new Error(`Unsupported dtype in weight '${name}': ${dtype}`);
-            }
-            offset += size * dtypeFactor;
-        }
-        if (dtype !== 'complex64') {
-            out[name] = Object(_ops_tensor_ops__WEBPACK_IMPORTED_MODULE_1__[/* tensor */ "f"])(values, shape, dtype);
-        }
-    }
-    return out;
-}
-/**
- * Concatenate TypedArrays into an ArrayBuffer.
- */
-function concatenateTypedArrays(xs) {
-    // TODO(adarob, cais): Support quantization.
-    if (xs === null) {
-        throw new Error(`Invalid input value: ${JSON.stringify(xs)}`);
-    }
-    let totalByteLength = 0;
-    // `normalizedXs` is here for this reason: a `TypedArray`'s `buffer'
-    // can have a different byte length from that of the `TypedArray` itself,
-    // for example, when the `TypedArray` is created from an offset in an
-    // `ArrayBuffer`. `normliazedXs` holds `TypedArray`s whose `buffer`s match
-    // the `TypedArray` in byte length. If an element of `xs` does not show
-    // this property, a new `TypedArray` that satisfy this property will be
-    // constructed and pushed into `normalizedXs`.
-    const normalizedXs = [];
-    xs.forEach((x) => {
-        totalByteLength += x.byteLength;
-        // tslint:disable:no-any
-        normalizedXs.push(x.byteLength === x.buffer.byteLength ? x :
-            new x.constructor(x));
-        if (!(x instanceof Float32Array || x instanceof Int32Array ||
-            x instanceof Uint8Array)) {
-            throw new Error(`Unsupported TypedArray subtype: ${x.constructor.name}`);
-        }
-        // tslint:enable:no-any
-    });
-    const y = new Uint8Array(totalByteLength);
-    let offset = 0;
-    normalizedXs.forEach((x) => {
-        y.set(new Uint8Array(x.buffer), offset);
-        offset += x.byteLength;
-    });
-    return y.buffer;
-}
-// Use Buffer on Node.js instead of Blob/atob/btoa
-const useNodeBuffer = typeof Buffer !== 'undefined' &&
-    (typeof Blob === 'undefined' || typeof atob === 'undefined' ||
-        typeof btoa === 'undefined');
-/**
- * Calculate the byte length of a JavaScript string.
- *
- * Note that a JavaScript string can contain wide characters, therefore the
- * length of the string is not necessarily equal to the byte length.
- *
- * @param str Input string.
- * @returns Byte length.
- */
-function stringByteLength(str) {
-    if (useNodeBuffer) {
-        return Buffer.byteLength(str);
-    }
-    return new Blob([str]).size;
-}
-/**
- * Encode an ArrayBuffer as a base64 encoded string.
- *
- * @param buffer `ArrayBuffer` to be converted.
- * @returns A string that base64-encodes `buffer`.
- */
-function arrayBufferToBase64String(buffer) {
-    if (useNodeBuffer) {
-        return Buffer.from(buffer).toString('base64');
-    }
-    const buf = new Uint8Array(buffer);
-    let s = '';
-    for (let i = 0, l = buf.length; i < l; i++) {
-        s += String.fromCharCode(buf[i]);
-    }
-    return btoa(s);
-}
-/**
- * Decode a base64 string as an ArrayBuffer.
- *
- * @param str Base64 string.
- * @returns Decoded `ArrayBuffer`.
- */
-function base64StringToArrayBuffer(str) {
-    if (useNodeBuffer) {
-        const buf = Buffer.from(str, 'base64');
-        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    }
-    const s = atob(str);
-    const buffer = new Uint8Array(s.length);
-    for (let i = 0; i < s.length; ++i) {
-        buffer.set([s.charCodeAt(i)], i);
-    }
-    return buffer.buffer;
-}
-/**
- * Concatenate a number of ArrayBuffers into one.
- *
- * @param buffers A number of array buffers to concatenate.
- * @returns Result of concatenating `buffers` in order.
- */
-function concatenateArrayBuffers(buffers) {
-    if (buffers.length === 1) {
-        return buffers[0];
-    }
-    let totalByteLength = 0;
-    buffers.forEach((buffer) => {
-        totalByteLength += buffer.byteLength;
-    });
-    const temp = new Uint8Array(totalByteLength);
-    let offset = 0;
-    buffers.forEach((buffer) => {
-        temp.set(new Uint8Array(buffer), offset);
-        offset += buffer.byteLength;
-    });
-    return temp.buffer;
-}
-/**
- * Get the basename of a path.
- *
- * Behaves in a way analogous to Linux's basename command.
- *
- * @param path
- */
-function basename(path) {
-    const SEPARATOR = '/';
-    path = path.trim();
-    while (path.endsWith(SEPARATOR)) {
-        path = path.slice(0, path.length - 1);
-    }
-    const items = path.split(SEPARATOR);
-    return items[items.length - 1];
-}
-/**
- * Populate ModelArtifactsInfo fields for a model with JSON topology.
- * @param modelArtifacts
- * @returns A ModelArtifactsInfo object.
- */
-function getModelArtifactsInfoForJSON(modelArtifacts) {
-    if (modelArtifacts.modelTopology instanceof ArrayBuffer) {
-        throw new Error('Expected JSON model topology, received ArrayBuffer.');
-    }
-    return {
-        dateSaved: new Date(),
-        modelTopologyType: 'JSON',
-        modelTopologyBytes: modelArtifacts.modelTopology == null ?
-            0 :
-            stringByteLength(JSON.stringify(modelArtifacts.modelTopology)),
-        weightSpecsBytes: modelArtifacts.weightSpecs == null ?
-            0 :
-            stringByteLength(JSON.stringify(modelArtifacts.weightSpecs)),
-        weightDataBytes: modelArtifacts.weightData == null ?
-            0 :
-            modelArtifacts.weightData.byteLength,
-    };
-}
-/**
- * Computes mantisa table for casting Float16 to Float32
- * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
- *
- * @returns Uint32Array, 2048 mantissa lookup values.
- */
-function computeFloat16MantisaTable() {
-    const convertMantissa = (i) => {
-        let m = i << 13;
-        let e = 0;
-        while ((m & 0x00800000) === 0) {
-            e -= 0x00800000;
-            m <<= 1;
-        }
-        m &= ~0x00800000;
-        e += 0x38800000;
-        return m | e;
-    };
-    const mantisaTable = new Uint32Array(2048);
-    mantisaTable[0] = 0;
-    for (let i = 1; i < 1024; i++) {
-        mantisaTable[i] = convertMantissa(i);
-    }
-    for (let i = 1024; i < 2048; i++) {
-        mantisaTable[i] = 0x38000000 + ((i - 1024) << 13);
-    }
-    return mantisaTable;
-}
-/**
- * Computes exponent table for casting Float16 to Float32
- * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
- *
- * @returns Uint32Array, 64 exponent lookup values.
- */
-function computeFloat16ExponentTable() {
-    const exponentTable = new Uint32Array(64);
-    exponentTable[0] = 0;
-    exponentTable[31] = 0x47800000;
-    exponentTable[32] = 0x80000000;
-    exponentTable[63] = 0xc7800000;
-    for (let i = 1; i < 31; i++) {
-        exponentTable[i] = i << 23;
-    }
-    for (let i = 33; i < 63; i++) {
-        exponentTable[i] = 0x80000000 + ((i - 32) << 23);
-    }
-    return exponentTable;
-}
-/**
- * Computes offset table for casting Float16 to Float32
- * See http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
- *
- * @returns Uint32Array, 6d offset values.
- */
-function computeFloat16OffsetTable() {
-    const offsetTable = new Uint32Array(64);
-    for (let i = 0; i < 64; i++) {
-        offsetTable[i] = 1024;
-    }
-    offsetTable[0] = offsetTable[32] = 0;
-    return offsetTable;
-}
-/**
- * Retrieve a Float16 decoder which will decode a ByteArray of Float16 values
- * to a Float32Array.
- *
- * @returns Function (buffer: Uint16Array) => Float32Array which decodes
- *          the Uint16Array of Float16 bytes to a Float32Array.
- */
-function getFloat16Decoder() {
-    // Algorithm is based off of http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
-    // Cache lookup tables
-    const mantisaTable = computeFloat16MantisaTable();
-    const exponentTable = computeFloat16ExponentTable();
-    const offsetTable = computeFloat16OffsetTable();
-    return (quantizedArray) => {
-        const buffer = new ArrayBuffer(4 * quantizedArray.length);
-        const bufferUint32View = new Uint32Array(buffer);
-        for (let index = 0; index < quantizedArray.length; index++) {
-            const float16Bits = quantizedArray[index];
-            const float32Bits = mantisaTable[offsetTable[float16Bits >> 10] + (float16Bits & 0x3ff)] +
-                exponentTable[float16Bits >> 10];
-            bufferUint32View[index] = float32Bits;
-        }
-        return new Float32Array(buffer);
-    };
-}
-//# sourceMappingURL=io_utils.js.map
-/* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(39).Buffer))
-
-/***/ }),
-/* 14 */
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-
-// EXPORTS
-__webpack_require__.d(__webpack_exports__, "f", function() { return /* binding */ iteratorFromItems; });
-__webpack_require__.d(__webpack_exports__, "e", function() { return /* binding */ iteratorFromFunction; });
-__webpack_require__.d(__webpack_exports__, "d", function() { return /* binding */ iteratorFromConcatenated; });
-__webpack_require__.d(__webpack_exports__, "g", function() { return /* binding */ iteratorFromZipped; });
-__webpack_require__.d(__webpack_exports__, "a", function() { return /* binding */ lazy_iterator_LazyIterator; });
-__webpack_require__.d(__webpack_exports__, "b", function() { return /* binding */ lazy_iterator_OneToManyIterator; });
-__webpack_require__.d(__webpack_exports__, "c", function() { return /* binding */ ZipMismatchMode; });
-
-// UNUSED EXPORTS: iteratorFromIncrementing, iteratorFromConcatenatedFunction, ChainedIterator, PrefetchIterator, ShuffleIterator
-
-// EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-core/dist/index.js + 269 modules
-var dist = __webpack_require__(0);
-
-// EXTERNAL MODULE: ./node_modules/seedrandom/index.js
-var seedrandom = __webpack_require__(20);
-
-// EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/deep_map.js
-var deep_map = __webpack_require__(19);
-
-// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/deep_clone.js
-/**
- * @license
- * Copyright 2018 Google LLC. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * =============================================================================
- */
-
-
-function deepClone(container) {
-    return Object(deep_map["b" /* deepMap */])(container, cloneIfTensor);
-}
-// tslint:disable-next-line: no-any
-function cloneIfTensor(item) {
-    if (item instanceof dist["Tensor"]) {
-        return ({ value: item.clone(), recurse: false });
-    }
-    else if (Object(deep_map["e" /* isIterable */])(item)) {
-        return { value: null, recurse: true };
-    }
-    else {
-        return { value: item, recurse: false };
-    }
-}
-//# sourceMappingURL=deep_clone.js.map
-// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/ring_buffer.js
-/**
- * @license
- * Copyright 2018 Google LLC. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * =============================================================================
- */
-/**
- * A ring buffer, providing O(1) FIFO, LIFO, and related operations.
- */
-class RingBuffer {
-    /**
-     * Constructs a `RingBuffer`.
-     * @param capacity The number of items that the buffer can accomodate.
-     */
-    constructor(capacity) {
-        this.capacity = capacity;
-        // Note we store the indices in the range 0 <= index < 2*capacity.
-        // This allows us to distinguish the full from the empty case.
-        // See https://www.snellman.net/blog/archive/2016-12-13-ring-buffers/
-        this.begin = 0; // inclusive
-        this.end = 0; // exclusive
-        if (capacity == null) {
-            throw new RangeError('Can\'t create a ring buffer of unknown capacity.');
-        }
-        if (capacity < 1) {
-            throw new RangeError('Can\'t create ring buffer of capacity < 1.');
-        }
-        this.data = new Array(capacity);
-        this.doubledCapacity = 2 * capacity;
-    }
-    /**
-     * Map any index into the range 0 <= index < 2*capacity.
-     */
-    wrap(index) {
-        // don't trust % on negative numbers
-        while (index < 0) {
-            index += this.doubledCapacity;
-        }
-        return index % this.doubledCapacity;
-    }
-    get(index) {
-        if (index < 0) {
-            throw new RangeError('Can\'t get item at a negative index.');
-        }
-        return this.data[index % this.capacity];
-    }
-    set(index, value) {
-        if (index < 0) {
-            throw new RangeError('Can\'t set item at a negative index.');
-        }
-        this.data[index % this.capacity] = value;
-    }
-    /**
-     * Returns the current number of items in the buffer.
-     */
-    length() {
-        let length = this.end - this.begin;
-        if (length < 0) {
-            length = this.doubledCapacity + length;
-        }
-        return length;
-    }
-    /**
-     * Reports whether the buffer is full.
-     * @returns true if the number of items in the buffer equals its capacity, and
-     *   false otherwise.
-     */
-    isFull() {
-        return this.length() === this.capacity;
-    }
-    /**
-     * Reports whether the buffer is empty.
-     * @returns true if the number of items in the buffer equals zero, and
-     *   false otherwise.
-     */
-    isEmpty() {
-        return this.length() === 0;
-    }
-    /**
-     * Adds an item to the end of the buffer.
-     */
-    push(value) {
-        if (this.isFull()) {
-            throw new RangeError('Ring buffer is full.');
-        }
-        this.set(this.end, value);
-        this.end = this.wrap(this.end + 1);
-    }
-    /**
-     * Adds many items to the end of the buffer, in order.
-     */
-    pushAll(values) {
-        for (const value of values) {
-            this.push(value);
-        }
-    }
-    /**
-     * Removes and returns the last item in the buffer.
-     */
-    pop() {
-        if (this.isEmpty()) {
-            throw new RangeError('Ring buffer is empty.');
-        }
-        this.end = this.wrap(this.end - 1);
-        const result = this.get(this.end);
-        this.set(this.end, undefined);
-        return result;
-    }
-    /**
-     * Adds an item to the beginning of the buffer.
-     */
-    unshift(value) {
-        if (this.isFull()) {
-            throw new RangeError('Ring buffer is full.');
-        }
-        this.begin = this.wrap(this.begin - 1);
-        this.set(this.begin, value);
-    }
-    /**
-     * Removes and returns the first item in the buffer.
-     */
-    shift() {
-        if (this.isEmpty()) {
-            throw new RangeError('Ring buffer is empty.');
-        }
-        const result = this.get(this.begin);
-        this.set(this.begin, undefined);
-        this.begin = this.wrap(this.begin + 1);
-        return result;
-    }
-    /**
-     * Removes and returns a specific item in the buffer, and moves the last item
-     * to the vacated slot.  This is useful for implementing a shuffling stream.
-     * Note that this operation necessarily scrambles the original order.
-     *
-     * @param relativeIndex: the index of the item to remove, relative to the
-     *   first item in the buffer (e.g., hiding the ring nature of the underlying
-     *   storage).
-     */
-    shuffleExcise(relativeIndex) {
-        if (this.isEmpty()) {
-            throw new RangeError('Ring buffer is empty.');
-        }
-        const index = this.wrap(this.begin + relativeIndex);
-        const result = this.get(index);
-        this.set(index, this.pop());
-        return result;
-    }
-}
-//# sourceMappingURL=ring_buffer.js.map
-// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/growing_ring_buffer.js
-/**
- * @license
- * Copyright 2018 Google LLC. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * =============================================================================
- */
-
-class growing_ring_buffer_GrowingRingBuffer extends RingBuffer {
-    /**
-     * Constructs a `GrowingRingBuffer`.
-     */
-    constructor() {
-        super(growing_ring_buffer_GrowingRingBuffer.INITIAL_CAPACITY);
-    }
-    isFull() {
-        return false;
-    }
-    push(value) {
-        if (super.isFull()) {
-            this.expand();
-        }
-        super.push(value);
-    }
-    unshift(value) {
-        if (super.isFull()) {
-            this.expand();
-        }
-        super.unshift(value);
-    }
-    /**
-     * Doubles the capacity of the buffer.
-     */
-    expand() {
-        const newCapacity = this.capacity * 2;
-        const newData = new Array(newCapacity);
-        const len = this.length();
-        // Rotate the buffer to start at index 0 again, since we can't just
-        // allocate more space at the end.
-        for (let i = 0; i < len; i++) {
-            newData[i] = this.get(this.wrap(this.begin + i));
-        }
-        this.data = newData;
-        this.capacity = newCapacity;
-        this.doubledCapacity = 2 * this.capacity;
-        this.begin = 0;
-        this.end = len;
-    }
-}
-growing_ring_buffer_GrowingRingBuffer.INITIAL_CAPACITY = 32;
-//# sourceMappingURL=growing_ring_buffer.js.map
-// CONCATENATED MODULE: ./node_modules/@tensorflow/tfjs-data/dist/iterators/lazy_iterator.js
-/**
- * @license
- * Copyright 2018 Google LLC. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * =============================================================================
- */
-
-
-
-
-
-
-// Here we implement a simple asynchronous iterator.
-// This lets us avoid using either third-party stream libraries or
-// recent TypeScript language support requiring polyfills.
-/**
- * Create a `LazyIterator` from an array of items.
- */
-function iteratorFromItems(items) {
-    return new lazy_iterator_ArrayIterator(items);
-}
-/**
- * Create a `LazyIterator` of incrementing integers.
- */
-function iteratorFromIncrementing(start) {
-    let i = start;
-    return iteratorFromFunction(() => ({ value: i++, done: false }));
-}
-/**
- * Create a `LazyIterator` from a function.
- *
- * ```js
- * let i = -1;
- * const func = () =>
- *    ++i < 5 ? {value: i, done: false} : {value: null, done: true};
- * const iter = tf.data.iteratorFromFunction(func);
- * await iter.forEachAsync(e => console.log(e));
- * ```
- *
- * @param func A function that produces data on each call.
- */
-function iteratorFromFunction(func) {
-    return new FunctionCallIterator(func);
-}
-/**
- * Create a `LazyIterator` by concatenating underlying streams, which are
- * themselves provided as a stream.
- *
- * This can also be thought of as a "stream flatten" operation.
- *
- * @param baseIterators A stream of streams to be concatenated.
- * @param baseErrorHandler An optional function that can intercept `Error`s
- *   raised during a `next()` call on the base stream.  This function can decide
- *   whether the error should be propagated, whether the error should be
- *   ignored, or whether the base stream should be terminated.
- */
-function iteratorFromConcatenated(baseIterators, baseErrorHandler) {
-    return new ChainedIterator(baseIterators, baseErrorHandler);
-}
-/**
- * Create a `LazyIterator` by concatenating streams produced by calling a
- * stream-generating function a given number of times.
- *
- * Since a `LazyIterator` is read-once, it cannot be repeated, but this
- * function can be used to achieve a similar effect:
- *
- *   LazyIterator.ofConcatenatedFunction(() => new MyIterator(), 6);
- *
- * @param iteratorFunc: A function that produces a new stream on each call.
- * @param count: The number of times to call the function.
- * @param baseErrorHandler An optional function that can intercept `Error`s
- *   raised during a `next()` call on the base stream.  This function can decide
- *   whether the error should be propagated, whether the error should be
- *   ignored, or whether the base stream should be terminated.
- */
-function iteratorFromConcatenatedFunction(iteratorFunc, count, baseErrorHandler) {
-    return iteratorFromConcatenated(iteratorFromFunction(iteratorFunc).take(count), baseErrorHandler);
-}
-/**
- * Create a `LazyIterator` by zipping together an array, dict, or nested
- * structure of `LazyIterator`s (and perhaps additional constants).
- *
- * The underlying streams must provide elements in a consistent order such
- * that they correspond.
- *
- * Typically, the underlying streams should have the same number of
- * elements. If they do not, the behavior is determined by the
- * `mismatchMode` argument.
- *
- * The nested structure of the `iterators` argument determines the
- * structure of elements in the resulting iterator.
- *
- * @param iterators: An array or object containing LazyIterators at the
- * leaves.
- * @param mismatchMode: Determines what to do when one underlying iterator
- * is exhausted before the others.  `ZipMismatchMode.FAIL` (the default)
- * causes an error to be thrown in this case.  `ZipMismatchMode.SHORTEST`
- * causes the zipped iterator to terminate with the furst underlying
- * streams, so elements remaining on the longer streams are ignored.
- * `ZipMismatchMode.LONGEST` causes the zipped stream to continue, filling
- * in nulls for the exhausted streams, until all streams are exhausted.
- */
-function iteratorFromZipped(iterators, mismatchMode = ZipMismatchMode.FAIL) {
-    return new lazy_iterator_ZipIterator(iterators, mismatchMode);
-}
-/**
- * An asynchronous iterator, providing lazy access to a potentially
- * unbounded stream of elements.
- *
- * Iterator can be obtained from a dataset:
- * `const iter = await dataset.iterator();`
- */
-class lazy_iterator_LazyIterator {
-    /**
-     * Collect all remaining elements of a bounded stream into an array.
-     * Obviously this will succeed only for small streams that fit in memory.
-     * Useful for testing.
-     *
-     * @returns A Promise for an array of stream elements, which will resolve
-     *   when the stream is exhausted.
-     */
-    async toArray() {
-        const result = [];
-        let x = await this.next();
-        while (!x.done) {
-            result.push(x.value);
-            x = await this.next();
-        }
-        return result;
-    }
-    /**
-     * Collect all elements of this dataset into an array with prefetching 100
-     * elements. This is useful for testing, because the prefetch changes the
-     * order in which the Promises are resolved along the processing pipeline.
-     * This may help expose bugs where results are dependent on the order of
-     * Promise resolution rather than on the logical order of the stream (i.e.,
-     * due to hidden mutable state).
-     *
-     * @returns A Promise for an array of stream elements, which will resolve
-     *   when the stream is exhausted.
-     */
-    async toArrayForTest() {
-        const stream = this.prefetch(100);
-        const result = [];
-        let x = await stream.next();
-        while (!x.done) {
-            result.push(x.value);
-            x = await stream.next();
-        }
-        return result;
-    }
-    /**
-     * Draw items from the stream until it is exhausted.
-     *
-     * This can be useful when the stream has side effects but no output.  In
-     * that case, calling this function guarantees that the stream will be
-     * fully processed.
-     */
-    async resolveFully() {
-        let x = await this.next();
-        while (!x.done) {
-            x = await this.next();
-        }
-    }
-    /**
-     * Draw items from the stream until it is exhausted, or a predicate fails.
-     *
-     * This can be useful when the stream has side effects but no output.  In
-     * that case, calling this function guarantees that the stream will be
-     * fully processed.
-     */
-    async resolveWhile(predicate) {
-        let x = await this.next();
-        let shouldContinue = predicate(x.value);
-        while ((!x.done) && shouldContinue) {
-            x = await this.next();
-            shouldContinue = predicate(x.value);
-        }
-    }
-    /**
-     * Handles errors thrown on this stream using a provided handler function.
-     *
-     * @param handler A function that handles any `Error` thrown during a `next()`
-     *   call and returns true if the stream should continue (dropping the failed
-     *   call) or false if the stream should quietly terminate.  If the handler
-     *   itself throws (or rethrows) an `Error`, that will be propagated.
-     *
-     * @returns A `LazyIterator` of elements passed through from upstream,
-     *   possibly filtering or terminating on upstream `next()` calls that
-     *   throw an `Error`.
-     */
-    handleErrors(handler) {
-        return new ErrorHandlingLazyIterator(this, handler);
-    }
-    // TODO(soergel): Implement reduce() etc.
-    /**
-     * Filters this stream according to `predicate`.
-     *
-     * @param predicate A function mapping a stream element to a boolean or a
-     * `Promise` for one.
-     *
-     * @returns A `LazyIterator` of elements for which the predicate was true.
-     */
-    filter(predicate) {
-        return new lazy_iterator_FilterIterator(this, predicate);
-    }
-    /**
-     * Maps this stream through a 1-to-1 transform.
-     *
-     * @param transform A function mapping a stream element to a transformed
-     *   element.
-     *
-     * @returns A `LazyIterator` of transformed elements.
-     */
-    map(transform) {
-        return new lazy_iterator_MapIterator(this, transform);
-    }
-    /**
-     * Maps this stream through an async 1-to-1 transform.
-     *
-     * @param transform A function mapping a stream element to a `Promise` for a
-     *   transformed stream element.
-     *
-     * @returns A `LazyIterator` of transformed elements.
-     */
-    mapAsync(transform) {
-        return new lazy_iterator_AsyncMapIterator(this, transform);
-    }
-    /**
-     * Maps this stream through a 1-to-1 transform, forcing serial execution.
-     *
-     * @param transform A function mapping a stream element to a transformed
-     *   element.
-     *
-     * @returns A `LazyIterator` of transformed elements.
-     */
-    serialMapAsync(transform) {
-        return new lazy_iterator_AsyncMapIterator(this, transform).serial();
-    }
-    /**
-     * Maps this stream through a 1-to-many transform.
-     *
-     * @param transform A function mapping a stream element to an array of
-     *   transformed elements.
-     *
-     * @returns A `DataStream` of transformed elements.
-     */
-    flatmap(transform) {
-        return new lazy_iterator_FlatmapIterator(this, transform);
-    }
-    /**
-     * Apply a function to every element of the stream.
-     *
-     * @param f A function to apply to each stream element.
-     */
-    async forEachAsync(f) {
-        return this.map(f).resolveFully();
-    }
-    /**
-     * Apply a function to every element of the stream, forcing serial execution.
-     *
-     * @param f A function to apply to each stream element.  Should return 'true'
-     *   to indicate that the stream should continue, or 'false' to cause it to
-     *   terminate.
-     */
-    async serialForEach(f) {
-        return this.serialMapAsync(f).resolveWhile(x => (x === true));
-    }
-    /**
-     * Groups elements into batches, represented as arrays of elements.
-     *
-     * We can think of the elements of this iterator as 'rows' (even if they are
-     * nested structures).  By the same token, consecutive values for a given
-     * key within the elements form a 'column'.  This matches the usual sense of
-     * 'row' and 'column' when processing tabular data (e.g., parsing a CSV).
-     *
-     * Thus, "Row-major" means that the resulting batch is simply a collection of
-     * rows: `[row1, row2, row3, ...]`.  This is contrast to the column-major
-     * form, which is needed for vectorized computation.
-     *
-     * @param batchSize The number of elements desired per batch.
-     * @param smallLastBatch Whether to emit the final batch when it has fewer
-     *   than batchSize elements. Default true.
-     * @returns A `LazyIterator` of batches of elements, represented as arrays
-     *   of the original element type.
-     */
-    rowMajorBatch(batchSize, smallLastBatch = true) {
-        return new RowMajorBatchIterator(this, batchSize, smallLastBatch);
-    }
-    /**
-     * Groups elements into batches, represented in column-major form.
-     *
-     * We can think of the elements of this iterator as 'rows' (even if they are
-     * nested structures).  By the same token, consecutive values for a given
-     * key within the elements form a 'column'.  This matches the usual sense of
-     * 'row' and 'column' when processing tabular data (e.g., parsing a CSV).
-     *
-     * Thus, "column-major" means that the resulting batch is a (potentially
-     * nested) structure representing the columns.  Each column entry, then,
-     * contains a collection of the values found in that column for a range of
-     * input elements.  This representation allows for vectorized computation, in
-     * contrast to the row-major form.
-     *
-     * The inputs should all have the same nested structure (i.e., of arrays and
-     * dicts).  The result is a single object with the same nested structure,
-     * where the leaves are arrays collecting the values of the inputs at that
-     * location (or, optionally, the result of a custom function applied to those
-     * arrays).
-     *
-     * @param batchSize The number of elements desired per batch.
-     * @param smallLastBatch Whether to emit the final batch when it has fewer
-     *   than batchSize elements. Default true.
-     * @param zipFn: (optional) A function that expects an array of elements at a
-     *   single node of the object tree, and returns a `DeepMapResult`.  The
-     *   `DeepMapResult` either provides a result value for that node (i.e.,
-     *   representing the subtree), or indicates that the node should be processed
-     *   recursively.  The default zipFn recurses as far as possible and places
-     *   arrays at the leaves.
-     * @returns A `LazyIterator` of batches of elements, represented as an object
-     *   with collections at the leaves.
-     */
-    columnMajorBatch(batchSize, smallLastBatch = true, 
-    // tslint:disable-next-line:no-any
-    zipFn = deep_map["f" /* zipToList */]) {
-        // First collect the desired number of input elements as a row-major batch.
-        const rowBatches = this.rowMajorBatch(batchSize, smallLastBatch);
-        // Now 'rotate' or 'pivot' the data, collecting all values from each column
-        // in the batch (i.e., for each key within the elements) into an array.
-        return rowBatches.map(x => Object(deep_map["d" /* deepZip */])(x, zipFn));
-    }
-    /**
-     * Concatenate this `LazyIterator` with another.
-     *
-     * @param iterator A `LazyIterator` to be concatenated onto this one.
-     * @param baseErrorHandler An optional function that can intercept `Error`s
-     *   raised during a `next()` call on the base stream.  This function can
-     *   decide whether the error should be propagated, whether the error should
-     *   be ignored, or whether the base stream should be terminated.
-     * @returns A `LazyIterator`.
-     */
-    concatenate(iterator, baseErrorHandler) {
-        return new ChainedIterator(iteratorFromItems([this, iterator]), baseErrorHandler);
-    }
-    /**
-     * Limits this stream to return at most `count` items.
-     *
-     * @param count The maximum number of items to provide from the stream. If
-     * a negative or undefined value is given, the entire stream is returned
-     *   unaltered.
-     */
-    take(count) {
-        if (count < 0 || count == null) {
-            return this;
-        }
-        return new TakeIterator(this, count);
-    }
-    /**
-     * Skips the first `count` items in this stream.
-     *
-     * @param count The number of items to skip.  If a negative or undefined
-     * value is given, the entire stream is returned unaltered.
-     */
-    skip(count) {
-        if (count < 0 || count == null) {
-            return this;
-        }
-        return new lazy_iterator_SkipIterator(this, count);
-    }
-    /**
-     * Prefetch the first `bufferSize` items in this stream.
-     *
-     * Note this prefetches Promises, but makes no guarantees about when those
-     * Promises resolve.
-     *
-     * @param bufferSize: An integer specifying the number of elements to be
-     *   prefetched.
-     */
-    prefetch(bufferSize) {
-        return new lazy_iterator_PrefetchIterator(this, bufferSize);
-    }
-    // TODO(soergel): deep sharded shuffle, where supported
-    /**
-     * Randomly shuffles the elements of this stream.
-     *
-     * @param bufferSize: An integer specifying the number of elements from
-     * this stream from which the new stream will sample.
-     * @param seed: (Optional.) An integer specifying the random seed that
-     * will be used to create the distribution.
-     */
-    shuffle(windowSize, seed) {
-        return new lazy_iterator_ShuffleIterator(this, windowSize, seed);
-    }
-    /**
-     * Force an iterator to execute serially: each next() call will await the
-     * prior one, so that they cannot execute concurrently.
-     */
-    serial() {
-        return new SerialIterator(this);
-    }
-}
-// ============================================================================
-// The following private classes serve to implement the chainable methods
-// on LazyIterator.  Unfortunately they can't be placed in separate files,
-// due to resulting trouble with circular imports.
-// ============================================================================
-// Iterators that just extend LazyIterator directly
-// ============================================================================
-class lazy_iterator_ArrayIterator extends lazy_iterator_LazyIterator {
-    constructor(items) {
-        super();
-        this.items = items;
-        this.trav = 0;
-    }
-    summary() {
-        return `Array of ${this.items.length} items`;
-    }
-    async next() {
-        if (this.trav >= this.items.length) {
-            return { value: null, done: true };
-        }
-        const item = this.items[this.trav];
-        this.trav++;
-        return { value: deepClone(item), done: false };
-    }
-}
-class FunctionCallIterator extends lazy_iterator_LazyIterator {
-    constructor(nextFn) {
-        super();
-        this.nextFn = nextFn;
-    }
-    summary() {
-        return `Function call`;
-    }
-    async next() {
-        try {
-            return this.nextFn();
-        }
-        catch (e) {
-            // Modify the error message but leave the stack trace intact
-            e.message =
-                `Error thrown while iterating through a dataset: ${e.message}`;
-            throw e;
-        }
-    }
-}
-class SerialIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream) {
-        super();
-        this.upstream = upstream;
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Serial`;
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        return this.upstream.next();
-    }
-}
-class lazy_iterator_SkipIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, maxCount) {
-        super();
-        this.upstream = upstream;
-        this.maxCount = maxCount;
-        // Local state that should not be clobbered by out-of-order execution.
-        this.count = 0;
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Skip`;
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        // TODO(soergel): consider tradeoffs of reading in parallel, eg.
-        // collecting next() promises in an Array and then waiting for
-        // Promise.all() of those. Benefit: pseudo-parallel execution.  Drawback:
-        // maybe delayed GC.
-        while (this.count++ < this.maxCount) {
-            const skipped = await this.upstream.next();
-            // short-circuit if upstream is already empty
-            if (skipped.done) {
-                return skipped;
-            }
-            dist["dispose"](skipped.value);
-        }
-        return this.upstream.next();
-    }
-}
-class TakeIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, maxCount) {
-        super();
-        this.upstream = upstream;
-        this.maxCount = maxCount;
-        this.count = 0;
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Take`;
-    }
-    async next() {
-        if (this.count++ >= this.maxCount) {
-            return { value: null, done: true };
-        }
-        return this.upstream.next();
-    }
-}
-// Note this batch just groups items into row-wise element arrays.
-// Rotating these to a column-wise representation happens only at the dataset
-// level.
-class RowMajorBatchIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, batchSize, enableSmallLastBatch = true) {
-        super();
-        this.upstream = upstream;
-        this.batchSize = batchSize;
-        this.enableSmallLastBatch = enableSmallLastBatch;
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    summary() {
-        return `${this.upstream.summary()} -> RowMajorBatch`;
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        const batch = [];
-        while (batch.length < this.batchSize) {
-            const item = await this.upstream.next();
-            if (item.done) {
-                if (this.enableSmallLastBatch && batch.length > 0) {
-                    return { value: batch, done: false };
-                }
-                return { value: null, done: true };
-            }
-            batch.push(item.value);
-        }
-        return { value: batch, done: false };
-    }
-}
-class lazy_iterator_FilterIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, predicate) {
-        super();
-        this.upstream = upstream;
-        this.predicate = predicate;
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Filter`;
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        while (true) {
-            const item = await this.upstream.next();
-            if (item.done || this.predicate(item.value)) {
-                return item;
-            }
-            dist["dispose"](item.value);
-        }
-    }
-}
-class lazy_iterator_MapIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, transform) {
-        super();
-        this.upstream = upstream;
-        this.transform = transform;
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Map`;
-    }
-    async next() {
-        const item = await this.upstream.next();
-        if (item.done) {
-            return { value: null, done: true };
-        }
-        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
-        // Careful: the transform may mutate the item in place.
-        // That's why we have to remember the input Tensors above, and then
-        // below dispose only those that were not passed through to the output.
-        // Note too that the transform function is responsible for tidying
-        // any intermediate Tensors.  Here we are concerned only about the
-        // inputs.
-        const mapped = this.transform(item.value);
-        const outputTensors = dist["tensor_util"].getTensorsInContainer(mapped);
-        // TODO(soergel) faster intersection
-        // TODO(soergel) move to tf.disposeExcept(in, out)?
-        for (const t of inputTensors) {
-            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
-                t.dispose();
-            }
-        }
-        return { value: mapped, done: false };
-    }
-}
-class ErrorHandlingLazyIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, handler) {
-        super();
-        this.upstream = upstream;
-        this.handler = handler;
-        this.count = 0;
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    summary() {
-        return `${this.upstream.summary()} -> handleErrors`;
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        while (true) {
-            try {
-                return await this.upstream.next();
-            }
-            catch (e) {
-                if (!this.handler(e)) {
-                    return { value: null, done: true };
-                }
-                // If the handler returns true, loop and fetch the next upstream item.
-                // If the upstream iterator throws an endless stream of errors, and if
-                // the handler says to ignore them, then we loop forever here.  That is
-                // the correct behavior-- it's up to the handler to decide when to stop.
-            }
-        }
-    }
-}
-class lazy_iterator_AsyncMapIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, transform) {
-        super();
-        this.upstream = upstream;
-        this.transform = transform;
-    }
-    summary() {
-        return `${this.upstream.summary()} -> AsyncMap`;
-    }
-    async next() {
-        const item = await this.upstream.next();
-        if (item.done) {
-            return { value: null, done: true };
-        }
-        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
-        // Careful: the transform may mutate the item in place.
-        // That's why we have to remember the input Tensors above, and then
-        // below dispose only those that were not passed through to the output.
-        // Note too that the transform function is responsible for tidying
-        // any intermediate Tensors.  Here we are concerned only about the
-        // inputs.
-        const mapped = await this.transform(item.value);
-        const outputTensors = dist["tensor_util"].getTensorsInContainer(mapped);
-        // TODO(soergel) faster intersection
-        // TODO(soergel) move to tf.disposeExcept(in, out)?
-        for (const t of inputTensors) {
-            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
-                t.dispose();
-            }
-        }
-        return { value: mapped, done: false };
-    }
-}
-// Iterators that maintain a queue of pending items
-// ============================================================================
-/**
- * A base class for transforming streams that operate by maintaining an
- * output queue of elements that are ready to return via next().  This is
- * commonly required when the transformation is 1-to-many:  A call to next()
- * may trigger a call to the underlying stream, which will produce many
- * mapped elements of this stream-- of which we need to return only one, so
- * we have to queue the rest.
- */
-class lazy_iterator_OneToManyIterator extends lazy_iterator_LazyIterator {
-    constructor() {
-        super();
-        this.outputQueue = new growing_ring_buffer_GrowingRingBuffer();
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    async serialNext() {
-        // Fetch so that the queue contains at least one item if possible.
-        // If the upstream source is exhausted, AND there are no items left in
-        // the output queue, then this stream is also exhausted.
-        while (this.outputQueue.length() === 0) {
-            // TODO(soergel): consider parallel reads.
-            if (!await this.pump()) {
-                return { value: null, done: true };
-            }
-        }
-        return { value: this.outputQueue.shift(), done: false };
-    }
-}
-class lazy_iterator_FlatmapIterator extends lazy_iterator_OneToManyIterator {
-    constructor(upstream, transform) {
-        super();
-        this.upstream = upstream;
-        this.transform = transform;
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Flatmap`;
-    }
-    async pump() {
-        const item = await this.upstream.next();
-        if (item.done) {
-            return false;
-        }
-        const inputTensors = dist["tensor_util"].getTensorsInContainer(item.value);
-        // Careful: the transform may mutate the item in place.
-        // that's why we have to remember the input Tensors above, and then
-        // below dispose only those that were not passed through to the output.
-        // Note too that the transform function is responsible for tidying any
-        // intermediate Tensors.  Here we are concerned only about the inputs.
-        const mappedArray = this.transform(item.value);
-        const outputTensors = dist["tensor_util"].getTensorsInContainer(mappedArray);
-        this.outputQueue.pushAll(mappedArray);
-        // TODO(soergel) faster intersection, and deduplicate outputTensors
-        // TODO(soergel) move to tf.disposeExcept(in, out)?
-        for (const t of inputTensors) {
-            if (!dist["tensor_util"].isTensorInList(t, outputTensors)) {
-                t.dispose();
-            }
-        }
-        return true;
-    }
-}
-/**
- * Provides a `LazyIterator` that concatenates a stream of underlying
- * streams.
- *
- * Doing this in a concurrency-safe way requires some trickery.  In
- * particular, we want this stream to return the elements from the
- * underlying streams in the correct order according to when next() was
- * called, even if the resulting Promises resolve in a different order.
- */
-class ChainedIterator extends lazy_iterator_LazyIterator {
-    constructor(iterators, baseErrorHandler) {
-        super();
-        this.baseErrorHandler = baseErrorHandler;
-        // Strict Promise execution order:
-        // a next() call may not even begin until the previous one completes.
-        this.lastRead = null;
-        // Local state that should not be clobbered by out-of-order execution.
-        this.iterator = null;
-        this.moreIterators = iterators;
-    }
-    summary() {
-        const upstreamSummaries = 'TODO: fill in upstream of chained summaries';
-        return `${upstreamSummaries} -> Chained`;
-    }
-    async next() {
-        this.lastRead = this.readFromChain(this.lastRead);
-        return this.lastRead;
-    }
-    async readFromChain(lastRead) {
-        // Must await on the previous read since the previous read may have advanced
-        // the stream of streams, from which we need to read.
-        // This is unfortunate since we can't parallelize reads. Which means
-        // prefetching of chained streams is a no-op.
-        // One solution is to prefetch immediately upstream of this.
-        await lastRead;
-        if (this.iterator == null) {
-            const iteratorResult = await this.moreIterators.next();
-            if (iteratorResult.done) {
-                // No more streams to stream from.
-                return { value: null, done: true };
-            }
-            this.iterator = iteratorResult.value;
-            if (this.baseErrorHandler != null) {
-                this.iterator = this.iterator.handleErrors(this.baseErrorHandler);
-            }
-        }
-        const itemResult = await this.iterator.next();
-        if (itemResult.done) {
-            this.iterator = null;
-            return this.readFromChain(lastRead);
-        }
-        return itemResult;
-    }
-}
-var ZipMismatchMode;
-(function (ZipMismatchMode) {
-    ZipMismatchMode[ZipMismatchMode["FAIL"] = 0] = "FAIL";
-    ZipMismatchMode[ZipMismatchMode["SHORTEST"] = 1] = "SHORTEST";
-    ZipMismatchMode[ZipMismatchMode["LONGEST"] = 2] = "LONGEST"; // use nulls for exhausted streams; use up the longest stream.
-})(ZipMismatchMode || (ZipMismatchMode = {}));
-/**
- * Provides a `LazyIterator` that zips together an array, dict, or nested
- * structure of `LazyIterator`s (and perhaps additional constants).
- *
- * The underlying streams must provide elements in a consistent order such
- * that they correspond.
- *
- * Typically, the underlying streams should have the same number of
- * elements. If they do not, the behavior is determined by the
- * `mismatchMode` argument.
- *
- * The nested structure of the `iterators` argument determines the
- * structure of elements in the resulting iterator.
- *
- * Doing this in a concurrency-safe way requires some trickery.  In
- * particular, we want this stream to return the elements from the
- * underlying streams in the correct order according to when next() was
- * called, even if the resulting Promises resolve in a different order.
- *
- * @param iterators: An array or object containing LazyIterators at the
- * leaves.
- * @param mismatchMode: Determines what to do when one underlying iterator
- * is exhausted before the others.  `ZipMismatchMode.FAIL` (the default)
- * causes an error to be thrown in this case.  `ZipMismatchMode.SHORTEST`
- * causes the zipped iterator to terminate with the furst underlying
- * streams, so elements remaining on the longer streams are ignored.
- * `ZipMismatchMode.LONGEST` causes the zipped stream to continue, filling
- * in nulls for the exhausted streams, until all streams are exhausted.
- */
-class lazy_iterator_ZipIterator extends lazy_iterator_LazyIterator {
-    constructor(iterators, mismatchMode = ZipMismatchMode.FAIL) {
-        super();
-        this.iterators = iterators;
-        this.mismatchMode = mismatchMode;
-        this.count = 0;
-        this.currentPromise = null;
-    }
-    summary() {
-        const upstreamSummaries = 'TODO: fill in upstream of zip summaries';
-        return `{${upstreamSummaries}} -> Zip`;
-    }
-    async nextState(afterState) {
-        // This chaining ensures that the underlying next() are not even called
-        // before the previous ones have resolved.
-        await afterState;
-        // Collect underlying iterator "done" signals as a side effect in
-        // getNext()
-        let numIterators = 0;
-        let iteratorsDone = 0;
-        function getNext(container) {
-            if (container instanceof lazy_iterator_LazyIterator) {
-                const result = container.next();
-                return {
-                    value: result.then(x => {
-                        numIterators++;
-                        if (x.done) {
-                            iteratorsDone++;
-                        }
-                        return x.value;
-                    }),
-                    recurse: false
-                };
-            }
-            else {
-                return { value: null, recurse: true };
-            }
-        }
-        const mapped = await Object(deep_map["c" /* deepMapAndAwaitAll */])(this.iterators, getNext);
-        if (numIterators === iteratorsDone) {
-            // The streams have all ended.
-            return { value: null, done: true };
-        }
-        if (iteratorsDone > 0) {
-            switch (this.mismatchMode) {
-                case ZipMismatchMode.FAIL:
-                    throw new Error('Zipped streams should have the same length. ' +
-                        `Mismatched at element ${this.count}.`);
-                case ZipMismatchMode.SHORTEST:
-                    return { value: null, done: true };
-                case ZipMismatchMode.LONGEST:
-                default:
-                // Continue.  The exhausted streams already produced value: null.
-            }
-        }
-        this.count++;
-        return { value: mapped, done: false };
-    }
-    async next() {
-        this.currentPromise = this.nextState(this.currentPromise);
-        return this.currentPromise;
-    }
-}
-// Iterators that maintain a ring buffer of pending promises
-// ============================================================================
-/**
- * A stream that prefetches a given number of items from an upstream source,
- * returning them in FIFO order.
- *
- * Note this prefetches Promises, but makes no guarantees about when those
- * Promises resolve.
- */
-class lazy_iterator_PrefetchIterator extends lazy_iterator_LazyIterator {
-    constructor(upstream, bufferSize) {
-        super();
-        this.upstream = upstream;
-        this.bufferSize = bufferSize;
-        this.buffer = new RingBuffer(bufferSize);
-    }
-    summary() {
-        return `${this.upstream.summary()} -> Prefetch`;
-    }
-    /**
-     * Refill the prefetch buffer.  Returns only after the buffer is full, or
-     * the upstream source is exhausted.
-     */
-    refill() {
-        while (!this.buffer.isFull()) {
-            const v = this.upstream.next();
-            this.buffer.push(v);
-        }
-    }
-    next() {
-        this.refill();
-        // This shift will never throw an error because the buffer is always
-        // full after a refill. If the stream is exhausted, the buffer will be
-        // full of Promises that will resolve to the end-of-stream signal.
-        return this.buffer.shift();
-    }
-}
-/**
- * A stream that performs a sliding-window random shuffle on an upstream
- * source. This is like a `PrefetchIterator` except that the items are
- * returned in randomized order.  Mixing naturally improves as the buffer
- * size increases.
- */
-class lazy_iterator_ShuffleIterator extends lazy_iterator_PrefetchIterator {
-    constructor(upstream, windowSize, seed) {
-        super(upstream, windowSize);
-        this.upstream = upstream;
-        this.windowSize = windowSize;
-        // Local state that should not be clobbered by out-of-order execution.
-        this.upstreamExhausted = false;
-        this.random = seedrandom["alea"](seed || dist["util"].now().toString());
-        this.lastRead = Promise.resolve({ value: null, done: false });
-    }
-    async next() {
-        // This sets this.lastRead to a new Promise right away, as opposed to
-        // saying `await this.lastRead; this.lastRead = this.serialNext();` which
-        // would not work because this.nextRead would be updated only after the
-        // promise resolves.
-        this.lastRead = this.lastRead.then(() => this.serialNext());
-        return this.lastRead;
-    }
-    randomInt(max) {
-        return Math.floor(this.random() * max);
-    }
-    chooseIndex() {
-        return this.randomInt(this.buffer.length());
-    }
-    async serialNext() {
-        // TODO(soergel): consider performance
-        if (!this.upstreamExhausted) {
-            this.refill();
-        }
-        while (!this.buffer.isEmpty()) {
-            const chosenIndex = this.chooseIndex();
-            const result = await this.buffer.shuffleExcise(chosenIndex);
-            if (result.done) {
-                this.upstreamExhausted = true;
-            }
-            else {
-                this.refill();
-                return result;
-            }
-        }
-        return { value: null, done: true };
-    }
-}
-//# sourceMappingURL=lazy_iterator.js.map
 
 /***/ }),
 /* 15 */
@@ -47796,7 +47796,7 @@ const json = [
 "use strict";
 /* WEBPACK VAR INJECTION */(function(Buffer) {/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return ByteChunkIterator; });
 /* harmony import */ var _tensorflow_tfjs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(0);
-/* harmony import */ var _lazy_iterator__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(14);
+/* harmony import */ var _lazy_iterator__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(13);
 /* harmony import */ var _string_iterator__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(58);
 /**
  * @license
@@ -47921,7 +47921,7 @@ class Utf8IteratorImpl extends _lazy_iterator__WEBPACK_IMPORTED_MODULE_1__[/* On
 
 "use strict";
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return StringIterator; });
-/* harmony import */ var _lazy_iterator__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(14);
+/* harmony import */ var _lazy_iterator__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(13);
 /**
  * @license
  * Copyright 2018 Google LLC. All Rights Reserved.
@@ -83502,7 +83502,7 @@ var dist = __webpack_require__(0);
 var seedrandom = __webpack_require__(20);
 
 // EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-data/dist/iterators/lazy_iterator.js + 3 modules
-var lazy_iterator = __webpack_require__(14);
+var lazy_iterator = __webpack_require__(13);
 
 // EXTERNAL MODULE: ./node_modules/@tensorflow/tfjs-data/dist/util/deep_map.js
 var deep_map = __webpack_require__(19);
@@ -86284,9 +86284,6 @@ TFFaceMesh.prototype.name = 'TFFaceMesh';
 
 /* harmony default export */ var facemesh = (TFFaceMesh);
 
-// EXTERNAL MODULE: ./node_modules/numeric/numeric-1.2.6.js
-var numeric_1_2_6 = __webpack_require__(12);
-
 // CONCATENATED MODULE: ./src/mat.mjs
 const mat = {};
 /**
@@ -86590,11 +86587,19 @@ mat.QRDecomposition = function(A, B){
 
 /* harmony default export */ var src_mat = (mat);
 
+// EXTERNAL MODULE: ./node_modules/numeric/numeric-1.2.6.js
+var numeric_1_2_6 = __webpack_require__(14);
+
 // CONCATENATED MODULE: ./src/util.mjs
+
+
 
 
 const util = {};
 
+
+var resizeWidth = 10;
+var resizeHeight = 6;
 /**
  * Eye class, represents an eye patch detected in the video stream
  * @param {ImageData} patch - the image data corresponding to an eye
@@ -86603,11 +86608,6 @@ const util = {};
  * @param {Number} width  - width of the eye patch
  * @param {Number} height - height of the eye patch
  */
-
-
-var resizeWidth = 10;
-var resizeHeight = 6;
-
 util.Eye = function(patch, imagex, imagey, width, height) {
     this.patch = patch;
     this.imagex = imagex;
@@ -86615,13 +86615,53 @@ util.Eye = function(patch, imagex, imagey, width, height) {
     this.width = width;
     this.height = height;
 };
+/**
+ * @param {eye} webgazer.util.Eye
+ * @return ImageData 
+ **/
+util.diamondEyes = function(eye){
+    var height = eye.height, width = eye.width, diamond = [],
+    offset = 0, wmidpoint = Math.floor(eye.width/2),
+    hmidpoint = Math.floor(eye.height/2),
+    w = 0, h = 0, loc = 0
+    for (let x =0;x<eye.data.length;x++){
+        loc = Math.floor(x/4)
+        h = Math.floor(loc/width)
+        w = loc - (h*width)
+        if (h > hmidpoint) {offset=(Math.floor(width/height*(hmidpoint-(Math.abs(hmidpoint-h)))))} 
+            else {offset=Math.floor(h*width/height)}
+        if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
+            diamond.push(eye.data[x]);
+        }
+        else{
+            diamond.push(0)
+        }
+        //can have else here to push white into diamond if you want to visualize eye
+    }
+    return diamond;
+}
 
-util.getEyeFeats = function(eyes) {
-    var resizedLeft = this.resizeEye(eyes.left, resizeHeight, resizeHeight);
-    var resizedright = this.resizeEye(eyes.right, resizeHeight, resizeHeight);
-
+    /**
+     * Compute eyes size as gray histogram
+     * @param {Object} eyes - The eyes where looking for gray histogram
+     * @returns {Array.<T>} The eyes gray level histogram
+     */
+util.getEyeFeats = function(eyes,custom_resizeWidth,custom_resizeHeight) {
+    var resizedLeft,resizedRight;
+    if (custom_resizeHeight !== undefined && custom_resizeHeight !== undefined){
+        resizedLeft = this.resizeEye(eyes.left, custom_resizeWidth, custom_resizeHeight);
+        resizedRight = this.resizeEye(eyes.right, custom_resizeWidth, custom_resizeHeight);
+    }
+    else{
+        resizedLeft = this.resizeEye(eyes.left, resizeWidth, resizeHeight);
+        resizedRight = this.resizeEye(eyes.right, resizeWidth, resizeHeight);
+    } 
     var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
-    var rightGray = this.grayscale(resizedright.data, resizedright.width, resizedright.height);
+    var rightGray = this.grayscale(resizedRight.data, resizedRight.width, resizedRight.height);
+    // var l_min = this.diamondEyes(resizedLeft);
+    // var r_min = this.diamondEyes(resizedRight);
+    // var leftGray = this.grayscale(l_min, l_min.length, 1);
+    // var rightGray = this.grayscale(r_min, r_min.length, 1);
 
     var histLeft = [];
     this.equalizeHistogram(leftGray, 5, histLeft);
@@ -86631,7 +86671,7 @@ util.getEyeFeats = function(eyes) {
     var leftGrayArray = Array.prototype.slice.call(histLeft);
     var rightGrayArray = Array.prototype.slice.call(histRight);
 
-    return leftGrayArray.concat(rightGrayArray);
+    return histLeft.concat(histRight);
 }
 //Data Window class
 //operates like an array but 'wraps' data around to keep the array at a fixed windowSize
@@ -86756,21 +86796,7 @@ util.equalizeHistogram = function(src, step, dst) {
     if (!step) step = 5;
 
     // Compute histogram and histogram sum:
-    var hist = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0];
+    var hist = Array(256).fill(0);
 
     for (var i = 0; i < srcLength; i += step) {
         ++hist[src[i]];
@@ -86950,154 +86976,28 @@ util.DebugBox.prototype.show = function(name, func) {
     func(canvas);
 };
 
-/**
- * Kalman Filter constructor
- * Kalman filters work by reducing the amount of noise in a models.
- * https://blog.cordiner.net/2011/05/03/object-tracking-using-a-kalman-filter-matlab/
- *
- * @param {Array.<Array.<Number>>} F - transition matrix
- * @param {Array.<Array.<Number>>} Q - process noise matrix
- * @param {Array.<Array.<Number>>} H - maps between measurement vector and noise matrix
- * @param {Array.<Array.<Number>>} R - defines measurement error of the device
- * @param {Array} P_initial - the initial state
- * @param {Array} X_initial - the initial state of the device
- */
-util.KalmanFilter = function(F, H, Q, R, P_initial, X_initial) {
-    this.F = F; // State transition matrix
-    this.Q = Q; // Process noise matrix
-    this.H = H; // Transformation matrix
-    this.R = R; // Measurement Noise
-    this.P = P_initial; //Initial covariance matrix
-    this.X = X_initial; //Initial guess of measurement
-};
-
-/**
- * Get Kalman next filtered value and update the internal state
- * @param {Array} z - the new measurement
- * @return {Array}
- */
-util.KalmanFilter.prototype.update = function(z) {
-
-    // Here, we define all the different matrix operations we will need
-    var add = numeric.add, sub = numeric.sub, inv = numeric.inv, identity = numeric.identity;
-    var mult = src_mat.mult, transpose = src_mat.transpose;
-    //TODO cache variables like the transpose of H
-
-    // prediction: X = F * X  |  P = F * P * F' + Q
-    var X_p = mult(this.F, this.X); //Update state vector
-    var P_p = add(mult(mult(this.F,this.P), transpose(this.F)), this.Q); //Predicted covaraince
-
-    //Calculate the update values
-    var y = sub(z, mult(this.H, X_p)); // This is the measurement error (between what we expect and the actual value)
-    var S = add(mult(mult(this.H, P_p), transpose(this.H)), this.R); //This is the residual covariance (the error in the covariance)
-
-    // kalman multiplier: K = P * H' * (H * P * H' + R)^-1
-    var K = mult(P_p, mult(transpose(this.H), inv(S))); //This is the Optimal Kalman Gain
-
-    //We need to change Y into it's column vector form
-    for(var i = 0; i < y.length; i++){
-        y[i] = [y[i]];
-    }
-
-    //Now we correct the internal values of the model
-    // correction: X = X + K * (m - H * X)  |  P = (I - K * H) * P
-    this.X = add(X_p, mult(K, y));
-    this.P = mult(sub(identity(K.length), mult(K,this.H)), P_p);
-    return transpose(mult(this.H, this.X))[0]; //Transforms the predicted state back into it's measurement form
-};
-
 /* harmony default export */ var src_util = (util);
 
-// CONCATENATED MODULE: ./src/ridgeReg.mjs
+// CONCATENATED MODULE: ./src/util_regression.mjs
 
 
 
 
 
-const ridgeReg_reg = {};
-var ridgeParameter = Math.pow(10,-5);
-var dataWindow = 700;
-var trailDataWindow = 10;
+const util_regression = {};
+
 
 /**
- * Performs ridge regression, according to the Weka code.
- * @param {Array} y - corresponds to screen coordinates (either x or y) for each of n click events
- * @param {Array.<Array.<Number>>} X - corresponds to gray pixel features (120 pixels for both eyes) for each of n clicks
- * @param {Array} k - ridge parameter
- * @return{Array} regression coefficients
+ * Initialize new arrays and initialize Kalman filter for regressions.
  */
-function ridge(y, X, k){
-  var nc = X[0].length;
-  var m_Coefficients = new Array(nc);
-  var xt = src_mat.transpose(X);
-  var solution = new Array();
-  var success = true;
-  do{
-    var ss = src_mat.mult(xt,X);
-    // Set ridge regression adjustment
-    for (var i = 0; i < nc; i++) {
-      ss[i][i] = ss[i][i] + k;
-    }
+util_regression.InitRegression = function() {
+  var dataWindow = 700;
+  var trailDataWindow = 10;
+  this.ridgeParameter = Math.pow(10,-5);
+  this.errorXArray = new src_util.DataWindow(dataWindow);
+  this.errorYArray = new src_util.DataWindow(dataWindow);
 
-    // Carry out the regression
-    var bb = src_mat.mult(xt,y);
-    for(var i = 0; i < nc; i++) {
-      m_Coefficients[i] = bb[i][0];
-    }
-    try{
-      var n = (m_Coefficients.length !== 0 ? m_Coefficients.length/m_Coefficients.length: 0);
-      if (m_Coefficients.length*n !== m_Coefficients.length){
-        console.log('Array length must be a multiple of m')
-      }
-      solution = (ss.length === ss[0].length ? (numeric_1_2_6.LUsolve(numeric_1_2_6.LU(ss,true),bb)) : (src_mat.QRDecomposition(ss,bb)));
 
-      for (var i = 0; i < nc; i++){
-        m_Coefficients[i] = solution[i];
-      }
-      success = true;
-    }
-    catch (ex){
-      k *= 10;
-      console.log(ex);
-      success = false;
-    }
-  } while (!success);
-  return m_Coefficients;
-}
-
-//TODO: still usefull ???
-/**
- *
- * @returns {Number}
- */
-function getCurrentFixationIndex() {
-  var index = 0;
-  var recentX = this.screenXTrailArray.get(0);
-  var recentY = this.screenYTrailArray.get(0);
-  for (var i = this.screenXTrailArray.length - 1; i >= 0; i--) {
-    var currX = this.screenXTrailArray.get(i);
-    var currY = this.screenYTrailArray.get(i);
-    var euclideanDistance = Math.sqrt(Math.pow((currX-recentX),2)+Math.pow((currY-recentY),2));
-    if (euclideanDistance > 72){
-      return i+1;
-    }
-  }
-  return i;
-}
-
-/**
- * Constructor of RidgeReg object,
- * this object allow to perform ridge regression
- * @constructor
- */
-ridgeReg_reg.RidgeReg = function() {
-  this.init();
-};
-
-/**
- * Initialize new arrays and initialize Kalman filter.
- */
-ridgeReg_reg.RidgeReg.prototype.init = function() {
   this.screenXClicksArray = new src_util.DataWindow(dataWindow);
   this.screenYClicksArray = new src_util.DataWindow(dataWindow);
   this.eyeFeaturesClicks = new src_util.DataWindow(dataWindow);
@@ -87143,151 +87043,63 @@ ridgeReg_reg.RidgeReg.prototype.init = function() {
   var P_initial = numeric_1_2_6.mul(numeric_1_2_6.identity(4), 0.0001); //Initial covariance matrix
   var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
 
-  this.kalman = new src_util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
-};
-
-/**
- * Add given data from eyes
- * @param {Object} eyes - eyes where extract data to add
- * @param {Object} screenPos - The current screen point
- * @param {Object} type - The type of performed action
- */
-ridgeReg_reg.RidgeReg.prototype.addData = function(eyes, screenPos, type) {
-  if (!eyes) {
-    return;
-  }
-  //not doing anything with blink at present
-  // if (eyes.left.blink || eyes.right.blink) {
-  //   return;
-  // }
-  //why are we pushing these as arrays rather than single elements?
-  if (type === 'click') {
-    this.screenXClicksArray.push([screenPos[0]]);
-    this.screenYClicksArray.push([screenPos[1]]);
-
-    this.eyeFeaturesClicks.push(src_util.getEyeFeats(eyes));
-    this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
-  } else if (type === 'move') {
-    this.screenXTrailArray.push([screenPos[0]]);
-    this.screenYTrailArray.push([screenPos[1]]);
-
-    this.eyeFeaturesTrail.push(src_util.getEyeFeats(eyes));
-    this.trailTimes.push(performance.now());
-    this.dataTrail.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
-  }
-
-  // [20180730 JT] Why do we do this? It doesn't return anything...
-  // But as JS is pass by reference, it still affects it.
-  //
-  // Causes problems for when we want to call 'addData' twice in a row on the same object, but perhaps with different screenPos or types (think multiple interactions within one video frame)
-  //eyes.left.patch = Array.from(eyes.left.patch.data);
-  //eyes.right.patch = Array.from(eyes.right.patch.data);
+  this.kalman = new util_regression.KalmanFilter(F, H, Q, R, P_initial, x_initial);
 }
 
 /**
- * Try to predict coordinates from pupil data
- * after apply linear regression on data set
- * @param {Object} eyesObj - The current user eyes object
- * @returns {Object}
+ * Kalman Filter constructor
+ * Kalman filters work by reducing the amount of noise in a models.
+ * https://blog.cordiner.net/2011/05/03/object-tracking-using-a-kalman-filter-matlab/
+ *
+ * @param {Array.<Array.<Number>>} F - transition matrix
+ * @param {Array.<Array.<Number>>} Q - process noise matrix
+ * @param {Array.<Array.<Number>>} H - maps between measurement vector and noise matrix
+ * @param {Array.<Array.<Number>>} R - defines measurement error of the device
+ * @param {Array} P_initial - the initial state
+ * @param {Array} X_initial - the initial state of the device
  */
-ridgeReg_reg.RidgeReg.prototype.predict = function(eyesObj) {
-  if (!eyesObj || this.eyeFeaturesClicks.length === 0) {
-    return null;
-  }
-  var acceptTime = performance.now() - this.trailTime;
-  var trailX = [];
-  var trailY = [];
-  var trailFeat = [];
-  for (var i = 0; i < this.trailDataWindow; i++) {
-    if (this.trailTimes.get(i) > acceptTime) {
-      trailX.push(this.screenXTrailArray.get(i));
-      trailY.push(this.screenYTrailArray.get(i));
-      trailFeat.push(this.eyeFeaturesTrail.get(i));
+util_regression.KalmanFilter = function(F, H, Q, R, P_initial, X_initial) {
+    this.F = F; // State transition matrix
+    this.Q = Q; // Process noise matrix
+    this.H = H; // Transformation matrix
+    this.R = R; // Measurement Noise
+    this.P = P_initial; //Initial covariance matrix
+    this.X = X_initial; //Initial guess of measurement
+};
+
+/**
+ * Get Kalman next filtered value and update the internal state
+ * @param {Array} z - the new measurement
+ * @return {Array}
+ */
+util_regression.KalmanFilter.prototype.update = function(z) {
+    // Here, we define all the different matrix operations we will need
+    var add = numeric_1_2_6.add, sub = numeric_1_2_6.sub, inv = numeric_1_2_6.inv, identity = numeric_1_2_6.identity;
+    var mult = src_mat.mult, transpose = src_mat.transpose;
+    //TODO cache variables like the transpose of H
+
+    // prediction: X = F * X  |  P = F * P * F' + Q
+    var X_p = mult(this.F, this.X); //Update state vector
+    var P_p = add(mult(mult(this.F,this.P), transpose(this.F)), this.Q); //Predicted covaraince
+
+    //Calculate the update values
+    var y = sub(z, mult(this.H, X_p)); // This is the measurement error (between what we expect and the actual value)
+    var S = add(mult(mult(this.H, P_p), transpose(this.H)), this.R); //This is the residual covariance (the error in the covariance)
+
+    // kalman multiplier: K = P * H' * (H * P * H' + R)^-1
+    var K = mult(P_p, mult(transpose(this.H), inv(S))); //This is the Optimal Kalman Gain
+
+    //We need to change Y into it's column vector form
+    for(var i = 0; i < y.length; i++){
+        y[i] = [y[i]];
     }
-  }
 
-  var screenXArray = this.screenXClicksArray.data.concat(trailX);
-  var screenYArray = this.screenYClicksArray.data.concat(trailY);
-  var eyeFeatures = this.eyeFeaturesClicks.data.concat(trailFeat);
-
-  var coefficientsX = ridge(screenXArray, eyeFeatures, ridgeParameter);
-  var coefficientsY = ridge(screenYArray, eyeFeatures, ridgeParameter);
-
-  var eyeFeats = src_util.getEyeFeats(eyesObj);
-  var predictedX = 0;
-  for(var i=0; i< eyeFeats.length; i++){
-    predictedX += eyeFeats[i] * coefficientsX[i];
-  }
-  var predictedY = 0;
-  for(var i=0; i< eyeFeats.length; i++){
-    predictedY += eyeFeats[i] * coefficientsY[i];
-  }
-
-  predictedX = Math.floor(predictedX);
-  predictedY = Math.floor(predictedY);
-
-  if (window.applyKalmanFilter) {
-    // Update Kalman model, and get prediction
-    var newGaze = [predictedX, predictedY]; // [20200607 xk] Should we use a 1x4 vector?
-    newGaze = this.kalman.update(newGaze);
-
-    return {
-      x: newGaze[0],
-      y: newGaze[1]
-    };
-  } else {
-    return {
-      x: predictedX,
-      y: predictedY
-    };
-  }
+    //Now we correct the internal values of the model
+    // correction: X = X + K * (m - H * X)  |  P = (I - K * H) * P
+    this.X = add(X_p, mult(K, y));
+    this.P = mult(sub(identity(K.length), mult(K,this.H)), P_p);
+    return transpose(mult(this.H, this.X))[0]; //Transforms the predicted state back into it's measurement form
 };
-
-/**
- * Add given data to current data set then,
- * replace current data member with given data
- * @param {Array.<Object>} data - The data to set
- */
-ridgeReg_reg.RidgeReg.prototype.setData = function(data) {
-  for (var i = 0; i < data.length; i++) {
-    // Clone data array
-    var leftData = new Uint8ClampedArray(data[i].eyes.left.patch.data);
-    var rightData = new Uint8ClampedArray(data[i].eyes.right.patch.data);
-    // Duplicate ImageData object
-    data[i].eyes.left.patch = new ImageData(leftData, data[i].eyes.left.width, data[i].eyes.left.height);
-    data[i].eyes.right.patch = new ImageData(rightData, data[i].eyes.right.width, data[i].eyes.right.height);
-
-    // Add those data objects to model
-    this.addData(data[i].eyes, data[i].screenPos, data[i].type);
-  }
-};
-
-/**
- * Return the data
- * @returns {Array.<Object>|*}
- */
-ridgeReg_reg.RidgeReg.prototype.getData = function() {
-  return this.dataClicks.data;
-}
-
-/**
- * The RidgeReg object name
- * @type {string}
- */
-ridgeReg_reg.RidgeReg.prototype.name = 'ridge';
-
-/* harmony default export */ var ridgeReg = (ridgeReg_reg);
-
-// CONCATENATED MODULE: ./src/ridgeWeightedReg.mjs
-
-
-
-
-const ridgeWeightedReg_reg = {};
-
-var ridgeWeightedReg_ridgeParameter = Math.pow(10,-5);
-var ridgeWeightedReg_dataWindow = 700;
-var ridgeWeightedReg_trailDataWindow = 10;
 
 /**
  * Performs ridge regression, according to the Weka code.
@@ -87296,7 +87108,7 @@ var ridgeWeightedReg_trailDataWindow = 10;
  * @param {Array} k - ridge parameter
  * @return{Array} regression coefficients
  */
-function ridgeWeightedReg_ridge(y, X, k){
+util_regression.ridge = function(y, X, k){
     var nc = X[0].length;
     var m_Coefficients = new Array(nc);
     var xt = src_mat.transpose(X);
@@ -87336,99 +87148,45 @@ function ridgeWeightedReg_ridge(y, X, k){
 }
 
 /**
- * Compute eyes size as gray histogram
- * @param {Object} eyes - The eyes where looking for gray histogram
- * @returns {Array.<T>} The eyes gray level histogram
+ * Add given data to current data set then,
+ * replace current data member with given data
+ * @param {Array.<Object>} data - The data to set
  */
+util_regression.setData = function(data) {
+  for (var i = 0; i < data.length; i++) {
+    // Clone data array
+    var leftData = new Uint8ClampedArray(data[i].eyes.left.patch.data);
+    var rightData = new Uint8ClampedArray(data[i].eyes.right.patch.data);
+    // Duplicate ImageData object
+    data[i].eyes.left.patch = new ImageData(leftData, data[i].eyes.left.width, data[i].eyes.left.height);
+    data[i].eyes.right.patch = new ImageData(rightData, data[i].eyes.right.width, data[i].eyes.right.height);
 
+    // Add those data objects to model
+    this.addData(data[i].eyes, data[i].screenPos, data[i].type);
+  }
+};
 
 //TODO: still usefull ???
 /**
  *
  * @returns {Number}
  */
-function ridgeWeightedReg_getCurrentFixationIndex() {
-    var index = 0;
-    var recentX = this.screenXTrailArray.get(0);
-    var recentY = this.screenYTrailArray.get(0);
-    for (var i = this.screenXTrailArray.length - 1; i >= 0; i--) {
-        var currX = this.screenXTrailArray.get(i);
-        var currY = this.screenYTrailArray.get(i);
-        var euclideanDistance = Math.sqrt(Math.pow((currX-recentX),2)+Math.pow((currY-recentY),2));
-        if (euclideanDistance > 72){
-            return i+1;
-        }
+util_regression.getCurrentFixationIndex = function() {
+  var index = 0;
+  var recentX = this.screenXTrailArray.get(0);
+  var recentY = this.screenYTrailArray.get(0);
+  for (var i = this.screenXTrailArray.length - 1; i >= 0; i--) {
+    var currX = this.screenXTrailArray.get(i);
+    var currY = this.screenYTrailArray.get(i);
+    var euclideanDistance = Math.sqrt(Math.pow((currX-recentX),2)+Math.pow((currY-recentY),2));
+    if (euclideanDistance > 72){
+      return i+1;
     }
-    return i;
+  }
+  return i;
 }
 
-/**
- * Constructor of RidgeWeightedReg object
- * @constructor
- */
-ridgeWeightedReg_reg.RidgeWeightedReg = function() {
-    this.init();
-};
-
-/**
- * Initialize new arrays and initialize Kalman filter.
- */
-ridgeWeightedReg_reg.RidgeWeightedReg.prototype.init = function() {
-    this.screenXClicksArray = new src_util.DataWindow(ridgeWeightedReg_dataWindow);
-    this.screenYClicksArray = new src_util.DataWindow(ridgeWeightedReg_dataWindow);
-    this.eyeFeaturesClicks = new src_util.DataWindow(ridgeWeightedReg_dataWindow);
-
-    //sets to one second worth of cursor trail
-    this.trailTime = 1000;
-    this.trailDataWindow = this.trailTime / webgazer.params.moveTickSize;
-    this.screenXTrailArray = new src_util.DataWindow(ridgeWeightedReg_trailDataWindow);
-    this.screenYTrailArray = new src_util.DataWindow(ridgeWeightedReg_trailDataWindow);
-    this.eyeFeaturesTrail = new src_util.DataWindow(ridgeWeightedReg_trailDataWindow);
-    this.trailTimes = new src_util.DataWindow(ridgeWeightedReg_trailDataWindow);
-
-    this.dataClicks = new src_util.DataWindow(ridgeWeightedReg_dataWindow);
-    this.dataTrail = new src_util.DataWindow(ridgeWeightedReg_trailDataWindow);
-
-    // Initialize Kalman filter [20200608 xk] what do we do about parameters?
-    // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least
-    //               by my own anecdotal observation a 4x1 x vector seems to work alright
-    var F = [ [1, 0, 1, 0],
-              [0, 1, 0, 1],
-              [0, 0, 1, 0],
-              [0, 0, 0, 1]];
-
-    //Parameters Q and R may require some fine tuning
-    var Q = [ [1/4, 0,    1/2, 0],
-              [0,   1/4,  0,   1/2],
-              [1/2, 0,    1,   0],
-              [0,  1/2,  0,   1]];// * delta_t
-    var delta_t = 1/10; // The amount of time between frames
-    Q = numeric_1_2_6.mul(Q, delta_t);
-
-    var H = [ [1, 0, 0, 0, 0, 0],
-              [0, 1, 0, 0, 0, 0],
-              [0, 0, 1, 0, 0, 0],
-              [0, 0, 0, 1, 0, 0]];
-    var H = [ [1, 0, 0, 0],
-              [0, 1, 0, 0]];
-    var pixel_error = 47; //We will need to fine tune this value [20200611 xk] I just put a random value here
-
-    //This matrix represents the expected measurement error
-    var R = numeric_1_2_6.mul(numeric_1_2_6.identity(2), pixel_error);
-
-    var P_initial = numeric_1_2_6.mul(numeric_1_2_6.identity(4), 0.0001); //Initial covariance matrix
-    var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
-
-    this.kalman = new src_util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
-};
-
-/**
- * Add given data from eyes
- * @param {Object} eyes - eyes where extract data to add
- * @param {Object} screenPos - The current screen point
- * @param {Object} type - The type of performed action
- */
-ridgeWeightedReg_reg.RidgeWeightedReg.prototype.addData = function(eyes, screenPos, type) {
+util_regression.addData = function(eyes, screenPos, type) {
     if (!eyes) {
         return;
     }
@@ -87439,7 +87197,6 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.addData = function(eyes, screenP
     if (type === 'click') {
         this.screenXClicksArray.push([screenPos[0]]);
         this.screenYClicksArray.push([screenPos[1]]);
-
         this.eyeFeaturesClicks.push(src_util.getEyeFeats(eyes));
         this.dataClicks.push({'eyes':eyes, 'screenPos':screenPos, 'type':type});
     } else if (type === 'move') {
@@ -87458,6 +87215,139 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.addData = function(eyes, screenP
     //eyes.left.patch = Array.from(eyes.left.patch.data);
     //eyes.right.patch = Array.from(eyes.right.patch.data);
 };
+
+/* harmony default export */ var src_util_regression = (util_regression);
+// CONCATENATED MODULE: ./src/ridgeReg.mjs
+
+
+
+const ridgeReg_reg = {};
+
+/**
+ * Constructor of RidgeReg object,
+ * this object allow to perform ridge regression
+ * @constructor
+ */
+ridgeReg_reg.RidgeReg = function() {
+  this.init();
+};
+
+/**
+ * Initialize new arrays and initialize Kalman filter.
+ */
+ridgeReg_reg.RidgeReg.prototype.init = src_util_regression.InitRegression
+
+/**
+ * Add given data from eyes
+ * @param {Object} eyes - eyes where extract data to add
+ * @param {Object} screenPos - The current screen point
+ * @param {Object} type - The type of performed action
+ */
+ridgeReg_reg.RidgeReg.prototype.addData = src_util_regression.addData
+
+/**
+ * Try to predict coordinates from pupil data
+ * after apply linear regression on data set
+ * @param {Object} eyesObj - The current user eyes object
+ * @returns {Object}
+ */
+ridgeReg_reg.RidgeReg.prototype.predict = function(eyesObj) {
+  if (!eyesObj || this.eyeFeaturesClicks.length === 0) {
+    return null;
+  }
+  var acceptTime = performance.now() - this.trailTime;
+  var trailX = [];
+  var trailY = [];
+  var trailFeat = [];
+  for (var i = 0; i < this.trailDataWindow; i++) {
+    if (this.trailTimes.get(i) > acceptTime) {
+      trailX.push(this.screenXTrailArray.get(i));
+      trailY.push(this.screenYTrailArray.get(i));
+      trailFeat.push(this.eyeFeaturesTrail.get(i));
+    }
+  }
+
+  var screenXArray = this.screenXClicksArray.data.concat(trailX);
+  var screenYArray = this.screenYClicksArray.data.concat(trailY);
+  var eyeFeatures = this.eyeFeaturesClicks.data.concat(trailFeat);
+
+  var coefficientsX = src_util_regression.ridge(screenXArray, eyeFeatures, this.ridgeParameter);
+  var coefficientsY = src_util_regression.ridge(screenYArray, eyeFeatures, this.ridgeParameter);
+
+  var eyeFeats = src_util.getEyeFeats(eyesObj);
+  var predictedX = 0;
+  for(var i=0; i< eyeFeats.length; i++){
+    predictedX += eyeFeats[i] * coefficientsX[i];
+  }
+  var predictedY = 0;
+  for(var i=0; i< eyeFeats.length; i++){
+    predictedY += eyeFeats[i] * coefficientsY[i];
+  }
+
+  predictedX = Math.floor(predictedX);
+  predictedY = Math.floor(predictedY);
+
+  if (window.applyKalmanFilter) {
+    // Update Kalman model, and get prediction
+    var newGaze = [predictedX, predictedY]; // [20200607 xk] Should we use a 1x4 vector?
+    newGaze = this.kalman.update(newGaze);
+
+    return {
+      x: newGaze[0],
+      y: newGaze[1]
+    };
+  } else {
+    return {
+      x: predictedX,
+      y: predictedY
+    };
+  }
+};
+
+ridgeReg_reg.RidgeReg.prototype.setData = src_util_regression.setData;
+
+/**
+ * Return the data
+ * @returns {Array.<Object>|*}
+ */
+ridgeReg_reg.RidgeReg.prototype.getData = function() {
+  return this.dataClicks.data;
+}
+
+/**
+ * The RidgeReg object name
+ * @type {string}
+ */
+ridgeReg_reg.RidgeReg.prototype.name = 'ridge';
+
+/* harmony default export */ var ridgeReg = (ridgeReg_reg);
+
+// CONCATENATED MODULE: ./src/ridgeWeightedReg.mjs
+
+
+
+const ridgeWeightedReg_reg = {};
+
+/**
+ * Constructor of RidgeWeightedReg object
+ * @constructor
+ */
+ridgeWeightedReg_reg.RidgeWeightedReg = function() {
+    this.init();
+};
+
+/**
+ * Initialize new arrays and initialize Kalman filter.
+ */
+ridgeWeightedReg_reg.RidgeWeightedReg.prototype.init = src_util_regression.InitRegression
+
+/**
+ * Add given data from eyes
+ * @param {Object} eyes - eyes where extract data to add
+ * @param {Object} screenPos - The current screen point
+ * @param {Object} type - The type of performed action
+ */
+ridgeWeightedReg_reg.RidgeWeightedReg.prototype.addData = src_util_regression.addData
 
 /**
  * Try to predict coordinates from pupil data
@@ -87507,8 +87397,8 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.predict = function(eyesObj) {
     var screenYArray = weightedYArray.concat(trailY);
     var eyeFeatures = weightedEyeFeats.concat(trailFeat);
 
-    var coefficientsX = ridgeWeightedReg_ridge(screenXArray, eyeFeatures, ridgeWeightedReg_ridgeParameter);
-    var coefficientsY = ridgeWeightedReg_ridge(screenYArray, eyeFeatures, ridgeWeightedReg_ridgeParameter);
+    var coefficientsX = src_util_regression.ridge(screenXArray, eyeFeatures, this.ridgeParameter);
+    var coefficientsY = src_util_regression.ridge(screenYArray, eyeFeatures, this.ridgeParameter);
 
     var eyeFeats = src_util.getEyeFeats(eyesObj);
     var predictedX = 0;
@@ -87540,25 +87430,7 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.predict = function(eyesObj) {
     }
 };
 
-/**
- * Add given data to current data set then,
- * replace current data member with given data
- * @param {Array.<Object>} data - The data to set
- */
-ridgeWeightedReg_reg.RidgeWeightedReg.prototype.setData = function(data) {
-    for (var i = 0; i < data.length; i++) {
-        // [20200611 xk] Previous comment said this was a kludge, but it seems like this is the best solution
-
-        // Clone data array
-        var leftData = new Uint8ClampedArray(data[i].eyes.left.patch.data);
-        var rightData = new Uint8ClampedArray(data[i].eyes.right.patch.data);
-        // Duplicate ImageData object
-        data[i].eyes.left.patch = new ImageData(leftData, data[i].eyes.left.width, data[i].eyes.left.height);
-        data[i].eyes.right.patch = new ImageData(rightData, data[i].eyes.right.width, data[i].eyes.right.height);
-
-        this.addData(data[i].eyes, data[i].screenPos, data[i].type);
-    }
-};
+ridgeWeightedReg_reg.RidgeWeightedReg.prototype.setData = src_util_regression.setData;
 
 /**
  * Return the data
@@ -87572,7 +87444,7 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.getData = function() {
  * The RidgeWeightedReg object name
  * @type {string}
  */
-ridgeWeightedReg_reg.RidgeWeightedReg.prototype.name = 'ridge';
+ridgeWeightedReg_reg.RidgeWeightedReg.prototype.name = 'ridgeWeighted';
 
 /* harmony default export */ var ridgeWeightedReg = (ridgeWeightedReg_reg);
 
@@ -87580,12 +87452,10 @@ ridgeWeightedReg_reg.RidgeWeightedReg.prototype.name = 'ridge';
 
 
 
+
 const ridgeRegThreaded_reg = {};
 
-var ridgeRegThreaded_ridgeParameter = Math.pow(10,-5);
-var ridgeRegThreaded_dataWindow = 700;
 var weights = {'X':[0],'Y':[0]};
-var ridgeRegThreaded_trailDataWindow = 10;
 
 
 /**
@@ -87601,61 +87471,7 @@ ridgeRegThreaded_reg.RidgeRegThreaded = function() {
 /**
  * Initialize new arrays and initialize Kalman filter.
  */
-ridgeRegThreaded_reg.RidgeRegThreaded.prototype.init = function() {
-    this.screenXClicksArray = new src_util.DataWindow(ridgeRegThreaded_dataWindow);
-    this.screenYClicksArray = new src_util.DataWindow(ridgeRegThreaded_dataWindow);
-    this.eyeFeaturesClicks = new src_util.DataWindow(ridgeRegThreaded_dataWindow);
-
-    this.screenXTrailArray = new src_util.DataWindow(ridgeRegThreaded_trailDataWindow);
-    this.screenYTrailArray = new src_util.DataWindow(ridgeRegThreaded_trailDataWindow);
-    this.eyeFeaturesTrail = new src_util.DataWindow(ridgeRegThreaded_trailDataWindow);
-
-    this.dataClicks = new src_util.DataWindow(ridgeRegThreaded_dataWindow);
-    this.dataTrail = new src_util.DataWindow(ridgeRegThreaded_dataWindow);
-
-    // Place the src/ridgeworker.js file into the same directory as your html file.
-    if (!this.worker) {
-        this.worker = new Worker('ridgeWorker.mjs'); // [20200708] TODO: Figure out how to make this inline
-        this.worker.onerror = function(err) { console.log(err.message); };
-        this.worker.onmessage = function(evt) {
-            weights.X = evt.data.X;
-            weights.Y = evt.data.Y;
-        };
-        console.log('initialized worker');
-    }
-
-    // Initialize Kalman filter [20200608 xk] what do we do about parameters?
-    // [20200611 xk] unsure what to do w.r.t. dimensionality of these matrices. So far at least
-    //               by my own anecdotal observation a 4x1 x vector seems to work alright
-    var F = [ [1, 0, 1, 0],
-              [0, 1, 0, 1],
-              [0, 0, 1, 0],
-              [0, 0, 0, 1]];
-
-    //Parameters Q and R may require some fine tuning
-    var Q = [ [1/4, 0,    1/2, 0],
-              [0,   1/4,  0,   1/2],
-              [1/2, 0,    1,   0],
-              [0,  1/2,  0,   1]];// * delta_t
-    var delta_t = 1/10; // The amount of time between frames
-    Q = numeric_1_2_6.mul(Q, delta_t);
-
-    var H = [ [1, 0, 0, 0, 0, 0],
-              [0, 1, 0, 0, 0, 0],
-              [0, 0, 1, 0, 0, 0],
-              [0, 0, 0, 1, 0, 0]];
-    var H = [ [1, 0, 0, 0],
-              [0, 1, 0, 0]];
-    var pixel_error = 47; //We will need to fine tune this value [20200611 xk] I just put a random value here
-
-    //This matrix represents the expected measurement error
-    var R = numeric_1_2_6.mul(numeric_1_2_6.identity(2), pixel_error);
-
-    var P_initial = numeric_1_2_6.mul(numeric_1_2_6.identity(4), 0.0001); //Initial covariance matrix
-    var x_initial = [[500], [500], [0], [0]]; // Initial measurement matrix
-
-    this.kalman = new src_util.KalmanFilter(F, H, Q, R, P_initial, x_initial);
-}
+ridgeRegThreaded_reg.RidgeRegThreaded.prototype.init = src_util.InitRegression
 
 /**
  * Add given data from eyes
@@ -87720,20 +87536,7 @@ ridgeRegThreaded_reg.RidgeRegThreaded.prototype.predict = function(eyesObj) {
  * replace current data member with given data
  * @param {Array.<Object>} data - The data to set
  */
-ridgeRegThreaded_reg.RidgeRegThreaded.prototype.setData = function(data) {
-    for (var i = 0; i < data.length; i++) {
-        // [20200611 xk] Previous comment said this was a kludge, but it seems like this is the best solution
-
-        // Clone data array
-        var leftData = new Uint8ClampedArray(data[i].eyes.left.patch.data);
-        var rightData = new Uint8ClampedArray(data[i].eyes.right.patch.data);
-        // Duplicate ImageData object
-        data[i].eyes.left.patch = new ImageData(leftData, data[i].eyes.left.width, data[i].eyes.left.height);
-        data[i].eyes.right.patch = new ImageData(rightData, data[i].eyes.right.width, data[i].eyes.right.height);
-
-        this.addData(data[i].eyes, data[i].screenPos, data[i].type);
-    }
-};
+ridgeRegThreaded_reg.RidgeRegThreaded.prototype.setData = src_util_regression.setData
 
 /**
  * Return the data
