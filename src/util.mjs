@@ -7,6 +7,8 @@ const util = {};
 
 var resizeWidth = 10;
 var resizeHeight = 6;
+
+//not used !?
 /**
  * Eye class, represents an eye patch detected in the video stream
  * @param {ImageData} patch - the image data corresponding to an eye
@@ -22,37 +24,12 @@ util.Eye = function(patch, imagex, imagey, width, height) {
     this.width = width;
     this.height = height;
 };
-/**
- * @param {eye} webgazer.util.Eye
- * @return ImageData 
- **/
-util.diamondEyes = function(eye){
-    var height = eye.height, width = eye.width, diamond = [],
-    offset = 0, wmidpoint = Math.floor(eye.width/2),
-    hmidpoint = Math.floor(eye.height/2),
-    w = 0, h = 0, loc = 0
-    for (let x =0;x<eye.data.length;x++){
-        loc = Math.floor(x/4)
-        h = Math.floor(loc/width)
-        w = loc - (h*width)
-        if (h > hmidpoint) {offset=(Math.floor(width/height*(hmidpoint-(Math.abs(hmidpoint-h)))))} 
-            else {offset=Math.floor(h*width/height)}
-        if (w >= wmidpoint - (offset) & w <= wmidpoint + (offset)){
-            diamond.push(eye.data[x]);
-        }
-        else{
-            diamond.push(0)
-        }
-        //can have else here to push white into diamond if you want to visualize eye
-    }
-    return diamond;
-}
 
-    /**
-     * Compute eyes size as gray histogram
-     * @param {Object} eyes - The eyes where looking for gray histogram
-     * @returns {Array.<T>} The eyes gray level histogram
-     */
+/**
+ * Compute eyes size as gray histogram
+ * @param {Object} eyes - The eyes where looking for gray histogram
+ * @returns {Array.<T>} The eyes gray level histogram
+ */
 util.getEyeFeats = function(eyes,custom_resizeWidth,custom_resizeHeight) {
     var resizedLeft,resizedRight;
     if (custom_resizeHeight !== undefined && custom_resizeHeight !== undefined){
@@ -221,6 +198,7 @@ util.equalizeHistogram = function(src, step, dst) {
     return dst;
 };
 
+//not used !?
 util.threshold = function(data, threshold) {
     for (let i = 0; i < data.length; i++) {
         data[i] = (data[i] > threshold) ? 255 : 0;
@@ -228,6 +206,7 @@ util.threshold = function(data, threshold) {
     return data;
 };
 
+//not used !?
 util.correlation = function(data1, data2) {
     const length = Math.min(data1.length, data2.length);
     let count = 0;
@@ -288,6 +267,7 @@ util.bound = function(prediction){
     return prediction;
 };
 
+//not used !? until the end of the file
 /**
  * Write statistics in debug paragraph panel
  * @param {HTMLElement} para - The <p> tag where write data

@@ -45,7 +45,10 @@ describe('regression functions', async()=> {
 			const regression_set = await page.evaluate(async() => {
 				return await webgazer.getRegression()
 			})
-			//assert.equal(regression_set[0].name,"ridge")
+			const regression_name = await page.evaluate(async() => {
+				return await webgazer.getRegression()[0].name
+			})
+			assert.equal(regression_name,"ridge")
 			assert.isNotNull(regression_set[0].dataClicks)
 			assert.isNotNull(regression_set[0].dataTrail)
 			assert.isNotNull(regression_set[0].eyeFeaturesClicks)
@@ -126,7 +129,7 @@ describe('regression functions', async()=> {
 			assert.isNotNull(new_regression.trailTimes)	
 		})
 	})
-	describe("regression predictions", async()=>{
+	describe("regression ridge predictions", async()=>{
 		it('should return null when prediction is called with no eyesObjects', async()=>{
 			const no_eyes_prediction = await page.evaluate(async() => {
 				return await webgazer.getRegression()[0].predict()
@@ -163,5 +166,61 @@ describe('regression functions', async()=> {
 			assert.isNotNull(kalman_filter_upgdate)
 
 		})
-	})			
+	})
+	describe("regression ridgeWeighted predictions", async()=>{
+		it('should return null when prediction is called with no eyesObjects', async()=>{
+			const no_eyes_prediction = await page.evaluate(async() => {
+				return await webgazer.getRegression()[1].predict()
+			})
+			assert.isNull(no_eyes_prediction)
+		})
+		it('should return a prediction when eyesObject is valid', async()=>{
+			const eyes_prediction = await page.evaluate(async() => {
+				const videoElementCanvas = document.getElementById('webgazerVideoCanvas')
+				const eyeFeatures = await webgazer.getTracker().getEyePatches(videoElementCanvas,videoElementCanvas.width,videoElementCanvas.height)
+				return await webgazer.getRegression()[1].predict(eyeFeatures)
+			})
+			assert.isNotNull(eyes_prediction)
+		})
+		it('Kalman filter should exist and have properties', async()=>{
+			const kalman_applied = await page.evaluate(async() => {
+				return window.applyKalmanFilter
+			})
+			assert.equal(kalman_applied,true)
+			const kalman_filter = await page.evaluate(async() => {
+				return webgazer.getRegression()[1].kalman
+			})
+			assert.isNotNull(kalman_filter.F)
+			assert.isNotNull(kalman_filter.H)
+			assert.isNotNull(kalman_filter.P)
+			assert.isNotNull(kalman_filter.Q)
+			assert.isNotNull(kalman_filter.R)
+			assert.isNotNull(kalman_filter.X)
+		})
+		it('Kalman filter should be updateable', async()=>{
+			const kalman_filter_upgdate = await page.evaluate(async() => {
+				return webgazer.getRegression()[1].kalman.update([500,500])
+			})
+			assert.isNotNull(kalman_filter_upgdate)
+
+		})
+
+		it('should be able to grayscale an image', async() =>{
+			const grayscale = await page.evaluate(async() => {
+				const videoElementCanvas = document.getElementById('webgazerVideoCanvas')
+				const eyeFeatures = await webgazer.getTracker().getEyePatches(videoElementCanvas,videoElementCanvas.width,videoElementCanvas.height)
+				return await webgazer.util.grayscale(eyeFeatures.left)
+			})
+			console.log(grayscale)
+			assert.isNotNull(grayscale)
+
+			it('should be able to equalize a grayscaled image', async() =>{
+				const equalizeHistogram = await page.evaluate(async() => {
+					await webgazer.util.equalizeHistogram(grayscale,5,[])
+				})
+				console.log(equalizeHistogram)
+				assert.isNotNull(equalizeHistogram)
+			})
+		})
+	})					
 })
