@@ -1,4 +1,7 @@
 import '@tensorflow/tfjs';
+//import(/* webpackPreload: true */ '@tensorflow/tfjs');
+//import(/* webpackChunkName: 'pageA' */ './vendors~main.js')
+
 import 'regression';
 import params from './params';
 import './dom_util';
