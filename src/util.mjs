@@ -30,16 +30,10 @@ util.Eye = function(patch, imagex, imagey, width, height) {
  * @param {Object} eyes - The eyes where looking for gray histogram
  * @returns {Array.<T>} The eyes gray level histogram
  */
-util.getEyeFeats = function(eyes,custom_resizeWidth,custom_resizeHeight) {
-    var resizedLeft,resizedRight;
-    if (custom_resizeHeight !== undefined && custom_resizeHeight !== undefined){
-        resizedLeft = this.resizeEye(eyes.left, custom_resizeWidth, custom_resizeHeight);
-        resizedRight = this.resizeEye(eyes.right, custom_resizeWidth, custom_resizeHeight);
-    }
-    else{
-        resizedLeft = this.resizeEye(eyes.left, resizeWidth, resizeHeight);
-        resizedRight = this.resizeEye(eyes.right, resizeWidth, resizeHeight);
-    } 
+util.getEyeFeats = function(eyes) {
+    var resizedLeft = this.resizeEye(eyes.left, resizeWidth, resizeHeight);
+    var resizedRight = this.resizeEye(eyes.right, resizeWidth, resizeHeight);
+    
     var leftGray = this.grayscale(resizedLeft.data, resizedLeft.width, resizedLeft.height);
     var rightGray = this.grayscale(resizedRight.data, resizedRight.width, resizedRight.height);
 

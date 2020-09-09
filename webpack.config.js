@@ -39,7 +39,7 @@ function createConfig(options) {
       splitChunks: { name: 'vendor', chunks: 'all' }
     },
     resolve: {
-      extensions: [".mjs", ".webpack.js", ".web.js", ".js", ".json"],
+        extensions: [".mjs", ".webpack.js", ".web.js", ".js", ".json"],
     },
     plugins: [
       new webpack.BannerPlugin(bannerString),
@@ -49,6 +49,5 @@ function createConfig(options) {
 }
 module.exports = createVariants({
   minified: [true, false],
-  
   target: ['var','commonjs2']
 }, createConfig);
