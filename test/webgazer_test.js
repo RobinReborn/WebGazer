@@ -2,18 +2,6 @@ const puppeteer = require('puppeteer');
 const { assert } = require('chai');
 const TFFaceMesh = require('@tensorflow-models/facemesh');
 
-function startTimer() {
-   const time = process.hrtime();
-   return time;
- }
-
-function endTimer(time) {
-   const diff = process.hrtime(time);
-   const NS_PER_SEC = 1e9;
-   const result = (diff[0] * NS_PER_SEC + diff[1]); // Result in Nanoseconds
-   return elapsed = result * 0.000001; //milliseconds
-}
-
 before(async () => {
 	const parent_dir = __dirname.substring(0,__dirname.length-4)
 	let my_y4m_video = parent_dir + 'www/data/src/P_01/dot.y4m'
@@ -130,7 +118,6 @@ describe('webgazer function', async() => {
 			assert.equal(new_video_dimensions[1],new_dimensions[1])
 		})
 		it('top level, non-video no arguments webgazer functions should work', async() =>{
-			let time = startTimer()
 			let basic_functions = await page.evaluate(async() => {		
 				return {getCurrentPrediction: JSON.stringify(await webgazer.getCurrentPrediction()),
 						addMouseEventListeners: JSON.stringify(await webgazer.addMouseEventListeners()),
@@ -144,7 +131,6 @@ describe('webgazer function', async() => {
 						pause:JSON.stringify(await webgazer.pause())
 					}
 				})
-			console.log("took ",endTimer(time)," milliseconds")
 
 
 			for(const [k,v] of Object.entries(basic_functions)){ 
