@@ -35,6 +35,7 @@ describe('regression functions', async()=> {
 	after(async () => {
 		const jsCoverage = await page.coverage.stopJSCoverage();
 		let usedBytes = 0;
+		debugger;
 		//assuming 0 is webgazer.js
 		jsCoverage[0].ranges.forEach(range => (usedBytes += range.end - range.start - 1));
 		console.log((100*usedBytes/jsCoverage[0].text.length).toFixed(4), "% Code Coverage on webgazer.js")

@@ -31,9 +31,9 @@ describe('webgazerExtract functions', async () => {
 
   	it('webgazer properties should be set correctly', async() =>{
   		await page.waitForSelector('#overlay');
-		  let model = await page.evaluate(async() => {
-			let tracker = webgazer.getTracker();
-			return tracker.name
+		    let model = await page.evaluate(async() => {
+			  let tracker = webgazer.getTracker();
+        return tracker.name
   			})
 		assert.equal(model,'TFFaceMesh')
   	})
