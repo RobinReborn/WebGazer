@@ -16,6 +16,10 @@ function createConfig(options) {
 		(options.target == 'var' ? '' : '.' + options.target) + 
 		(options.minified ? '.min' : '') + 
 		'.js',
+      chunkFilename: 'tensorflow' + 
+    (options.target == 'var' ? '' : '.' + options.target) + 
+    (options.minified ? '.min' : '') + 
+    '.js',
       library: 'webgazer',
       libraryTarget: options.target,
       libraryExport: 'default',

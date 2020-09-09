@@ -1,45 +1,6 @@
-const puppeteer = require('puppeteer');
 const { assert } = require('chai');
-const TFFaceMesh = require('@tensorflow-models/facemesh');
 
 describe('regression functions', async()=> {
-	let browser,page;
-	before(async() =>{
-		const parent_dir = __dirname.substring(0,__dirname.length-4)
-		let my_y4m_video = parent_dir + 'www/data/src/P_01/dot.y4m'
-		browser = await puppeteer.launch({args:['--use-file-for-fake-video-capture='+my_y4m_video,
-		'--allow-file-access', '--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream',
-		'--no-sandbox','--disable-setuid-sandbox',
-		]
-		//,devtools:true //enable for debugging
-		});
-		page = await browser.newPage();
-		await page.goto('http://localhost:3000/calibration.html?');
-		page.coverage.startJSCoverage();
-
-
-		await page.waitFor(1500)
-			await page.waitForSelector('#start_calibration')
-			//calibration button is not immediately clickable due to css transition
-			await page.waitFor(2500)
-
-		await page.evaluate(async() => {
-			document.querySelector("#start_calibration").click()
-		})
-		await page.waitFor(1500)
-		await page.evaluate(async() =>{
-			document.querySelector("body > div.swal-overlay.swal-overlay--show-modal > div > div.swal-footer > div > button").click()
-		})
-	})
-
-	after(async () => {
-		const jsCoverage = await page.coverage.stopJSCoverage();
-		let usedBytes = 0;
-		//assuming 0 is webgazer.js
-		jsCoverage[0].ranges.forEach(range => (usedBytes += range.end - range.start - 1));
-		console.log((100*usedBytes/jsCoverage[0].text.length).toFixed(4), "% Code Coverage on webgazer.js")
-		await browser.close();
-	})
 	describe('top level functions', async()=> {
 		it('default regression should be ridge and it should have default properties', async() =>{
 			const regression_set = await page.evaluate(async() => {
@@ -67,8 +28,9 @@ describe('regression functions', async()=> {
 		it('mouse clicks and moves should be stored in regs', async()=>{
 			await page.mouse.click(500,600)
 			let regsClicksArray = await page.evaluate(async()=>{
-				return {x:await webgazer.getRegression()[0].screenXClicksArray.data[1],
-						y:await webgazer.getRegression()[0].screenYClicksArray.data[1]}
+				//these indices will change if other tests produce clicks
+				return {x:await webgazer.getRegression()[0].screenXClicksArray.data[1][0],
+						y:await webgazer.getRegression()[0].screenYClicksArray.data[1][0]}
 			})
 			assert.equal(regsClicksArray.x,500)
 			assert.equal(regsClicksArray.y,600)
@@ -102,9 +64,7 @@ describe('regression functions', async()=> {
 		it('should make predictions', async()=>{
 			const prediction = await page.evaluate(async() => {
 				return await webgazer.getCurrentPrediction()
-			})
-			
-			console.log(prediction)
+			})			
 			assert.isNotNull(prediction)
 		})
 
@@ -202,23 +162,19 @@ describe('regression functions', async()=> {
 				return webgazer.getRegression()[1].kalman.update([500,500])
 			})
 			assert.isNotNull(kalman_filter_upgdate)
-
 		})
-
 		it('should be able to grayscale an image', async() =>{
 			const grayscale = await page.evaluate(async() => {
 				const videoElementCanvas = document.getElementById('webgazerVideoCanvas')
 				const eyeFeatures = await webgazer.getTracker().getEyePatches(videoElementCanvas,videoElementCanvas.width,videoElementCanvas.height)
 				return await webgazer.util.grayscale(eyeFeatures.left)
 			})
-			console.log(grayscale)
 			assert.isNotNull(grayscale)
-
+		
 			it('should be able to equalize a grayscaled image', async() =>{
 				const equalizeHistogram = await page.evaluate(async() => {
 					await webgazer.util.equalizeHistogram(grayscale,5,[])
 				})
-				console.log(equalizeHistogram)
 				assert.isNotNull(equalizeHistogram)
 			})
 		})

@@ -1,1 +1,1 @@
-../dist/1.webgazer.js
+../dist/tensorflow.js
