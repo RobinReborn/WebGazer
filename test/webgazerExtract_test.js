@@ -1,3 +1,4 @@
+const puppeteer = require('puppeteer');
 const { assert } = require('chai');
 const TFFaceMesh = require('@tensorflow-models/facemesh');
 
